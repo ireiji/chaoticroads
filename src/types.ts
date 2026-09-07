@@ -22,9 +22,12 @@ export interface VehiclePhysicsState {
   worldX: number;
   worldY: number;
   worldZ: number;
-  roll: number; // lean angle (motorcycle banking)
+  roll: number; // lean angle (motorcycle banking or car body roll)
   pitch: number;
   yaw: number;
+  yawRate: number; // rad/s
+  lateralVelocity: number; // m/s
+  steeringWheelAngle: number; // radians of steering wheel rotation
   leftBlinker: boolean;
   rightBlinker: boolean;
   headlights: boolean;

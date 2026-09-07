@@ -166,6 +166,7 @@ export default function App() {
         onSetTimeOfDay={handleSetTimeOfDay}
         onSetAutoTimeCycle={handleSetAutoTimeCycle}
         onToggleHelp={() => setIsHelpModalOpen(true)}
+        onOpenSpotifyModal={() => setIsSpotifyModalOpen(true)}
         physics={physics}
       />
 

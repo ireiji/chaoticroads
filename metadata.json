@@ -2,5 +2,7 @@
   "name": "Chaotic Roads",
   "description": "Infinite procedural highway driving simulator with car & motorcycle cockpit views, dynamic overtaking traffic, functional realistic dashboard gauges, day/weather cycle, sound synthesizer, and Spotify infotainment.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

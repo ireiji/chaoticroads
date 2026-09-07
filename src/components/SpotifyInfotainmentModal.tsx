@@ -26,17 +26,13 @@ export const SpotifyInfotainmentModal: React.FC<Props> = ({ isOpen, onClose }) =
   const handleOpenAuth = async () => {
     try {
       setIsProcessing(true);
-      setStatusMessage({ text: 'Opening Spotify authorization window...', type: 'info' });
+      setStatusMessage({ text: 'Redirecting to Spotify authorization in this tab...', type: 'info' });
       const authUrl = await spotifyManager.getAuthUrl();
-      window.open(authUrl, '_blank', 'width=550,height=750');
-      setStatusMessage({
-        text: 'Spotify window opened. After approving, Spotify will redirect to your Redirect URI with "?code=...". Paste that URL or code below, or paste your Bearer token directly!',
-        type: 'info',
-      });
+      // Redirect in the SAME tab as requested by the user
+      window.location.href = authUrl;
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to generate Spotify authorization URL';
       setStatusMessage({ text: errorMsg, type: 'error' });
-    } finally {
       setIsProcessing(false);
     }
   };

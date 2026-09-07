@@ -56,6 +56,12 @@ export const CockpitDashboardOverlay: React.FC<Props> = ({
   const isCar = vehicleType === 'car';
   const isCockpit = cameraView === 'cockpit';
 
+  // In Cockpit View: The gauges and Spotify are 100% physically inside the 3D dashboard!
+  // Return null so no 2D UI overlays obstruct the 3D driver's POV.
+  if (isCockpit) {
+    return null;
+  }
+
   // Math for Analog Needles
   // Speedometer (0 - 200 mph): range -135deg to +135deg (total 270deg)
   const maxSpeedGauge = isCar ? 180 : 220;

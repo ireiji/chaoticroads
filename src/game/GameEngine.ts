@@ -1,13 +1,22 @@
 /**
- * Chaotic Roads - Main 3D Game Engine
- * Powered by Three.js
+ * GameEngine.ts - Procedural Highway Driving Engine for Three.js
+ * Implements physically realistic vehicle dynamics, visible multi-lane highway rendering,
+ * in-dash 3D gauge cluster & Spotify infotainment, day/weather cycle, and traffic simulation.
  */
 
 import * as THREE from 'three';
-import { CameraView, TimeOfDay, TrafficDensity, VehiclePhysicsState, VehicleType, WeatherType } from '../types';
+import {
+  CameraView,
+  TimeOfDay,
+  TrafficDensity,
+  VehiclePhysicsState,
+  VehicleType,
+  WeatherType,
+} from '../types';
 import { HighwaySpline } from './HighwaySpline';
 import { TrafficManager } from './TrafficManager';
 import { Vehicles3D } from './Vehicles3D';
+import { CockpitScreens } from './CockpitScreens';
 import { soundEngine } from '../audio/SoundEngine';
 
 export class GameEngine {
@@ -22,7 +31,7 @@ export class GameEngine {
   private sunLight: THREE.DirectionalLight;
   private streetLightsGroup: THREE.Group;
 
-  // Road chunks
+  // Road & Environment
   private roadGroup: THREE.Group;
   private roadMesh: THREE.Mesh | null = null;
   private terrainMesh: THREE.Mesh | null = null;
@@ -38,9 +47,10 @@ export class GameEngine {
   // Traffic
   private trafficManager: TrafficManager;
 
-  // Vehicle Meshes
+  // Vehicle Meshes & In-Cockpit 3D Screens
+  private cockpitScreens: CockpitScreens;
   private carExterior: ReturnType<typeof Vehicles3D.createPlayerCarMesh>;
-  private carCockpit: ReturnType<typeof Vehicles3D.createPlayerCarCockpit>;
+  private carCockpit: ReturnType<typeof Vehicles3D.createCarCockpit>;
   private motoExterior: ReturnType<typeof Vehicles3D.createPlayerMotorcycleMesh>;
   private motoCockpit: ReturnType<typeof Vehicles3D.createPlayerMotorcycleCockpit>;
 
@@ -61,7 +71,7 @@ export class GameEngine {
     brake: 0,
     isBoosting: false,
     boostFuel: 100,
-    laneOffset: HighwaySpline.getLaneOffset(1), // start in middle lane
+    laneOffset: HighwaySpline.getLaneOffset(1), // middle right lane
     highwayDistance: 100,
     worldX: 0,
     worldY: 0,
@@ -69,6 +79,9 @@ export class GameEngine {
     roll: 0,
     pitch: 0,
     yaw: 0,
+    yawRate: 0,
+    lateralVelocity: 0,
+    steeringWheelAngle: 0,
     leftBlinker: false,
     rightBlinker: false,
     headlights: true,
@@ -102,7 +115,7 @@ export class GameEngine {
     // 1. Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x60a5fa);
-    this.scene.fog = new THREE.FogExp2(0xbae6fd, 0.0018);
+    this.scene.fog = new THREE.FogExp2(0xbae6fd, 0.0016);
 
     // 2. Camera setup
     this.camera = new THREE.PerspectiveCamera(
@@ -127,19 +140,19 @@ export class GameEngine {
     container.appendChild(this.renderer.domElement);
 
     // 4. Lighting setup
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
     this.scene.add(this.ambientLight);
 
-    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.8);
+    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.85);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xffedd5, 1.6);
+    this.sunLight = new THREE.DirectionalLight(0xffedd5, 1.7);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 2048;
     this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
-    this.sunLight.shadow.camera.far = 220;
-    const d = 50;
+    this.sunLight.shadow.camera.far = 240;
+    const d = 55;
     this.sunLight.shadow.camera.left = -d;
     this.sunLight.shadow.camera.right = d;
     this.sunLight.shadow.camera.top = d;
@@ -164,39 +177,42 @@ export class GameEngine {
       if (this.onNearMissScore) this.onNearMissScore(streak);
     };
     this.trafficManager.onCollision = () => {
-      // Impact penalty
-      this.physics.speed = Math.max(10, this.physics.speed * 0.4);
-      this.physics.steerAngle += (Math.random() - 0.5) * 0.5;
+      // Impact penalty & sound
+      soundEngine.playCrashThud();
+      this.physics.speed = Math.max(10, this.physics.speed * 0.45);
+      this.physics.lateralVelocity *= -0.5;
+      this.physics.steerAngle += (Math.random() - 0.5) * 0.4;
     };
 
-    // 7. Initialize Player Vehicle 3D Meshes
+    // 7. Initialize In-Dash 3D Cockpit Displays & Vehicle Meshes
+    this.cockpitScreens = new CockpitScreens();
     this.carExterior = Vehicles3D.createPlayerCarMesh();
-    this.carCockpit = Vehicles3D.createPlayerCarCockpit();
+    this.carCockpit = Vehicles3D.createCarCockpit(this.cockpitScreens);
     this.motoExterior = Vehicles3D.createPlayerMotorcycleMesh();
-    this.motoCockpit = Vehicles3D.createPlayerMotorcycleCockpit();
+    this.motoCockpit = Vehicles3D.createPlayerMotorcycleCockpit(this.cockpitScreens);
 
     this.scene.add(this.carExterior.root);
     this.scene.add(this.carCockpit.root);
     this.scene.add(this.motoExterior.root);
     this.scene.add(this.motoCockpit.root);
 
+    this.updateVehicleVisibility();
+
     // 8. Rain Particles
     this.setupRain();
 
-    // 9. Initial Road & Environment build
-    this.updateEnvironmentLighting();
-    this.rebuildRoadGeometry(this.physics.highwayDistance);
-    this.spawnRoadsideScenery(this.physics.highwayDistance);
-
-    // 10. Event Listeners
+    // 9. Event Listeners
     this.setupInputListeners();
     window.addEventListener('resize', this.onWindowResize);
 
-    this.updateVehicleVisibility();
+    // 10. Initial Road Generation & Environment
+    this.rebuildRoadGeometry(this.physics.highwayDistance);
+    this.spawnRoadsideScenery(this.physics.highwayDistance);
+    this.updateEnvironmentLighting();
   }
 
   private setupRain() {
-    const rainCount = 2800;
+    const rainCount = 4500;
     const positions = new Float32Array(rainCount * 3);
     for (let i = 0; i < rainCount; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 60;
@@ -220,12 +236,10 @@ export class GameEngine {
 
   private setupInputListeners() {
     window.addEventListener('keydown', (e) => {
-      // Sound engine init on first user gesture
       soundEngine.init();
-
       this.keys[e.code] = true;
 
-      // Toggle Blinker controls
+      // Toggle Blinker controls (Left / Right Arrow)
       if (e.code === 'ArrowLeft') {
         this.physics.leftBlinker = !this.physics.leftBlinker;
         if (this.physics.leftBlinker) this.physics.rightBlinker = false;
@@ -285,8 +299,8 @@ export class GameEngine {
     this.updateEnvironmentLighting();
   }
 
-  public setTimeOfDay(time: TimeOfDay) {
-    this.timeOfDay = time;
+  public setTimeOfDay(tod: TimeOfDay) {
+    this.timeOfDay = tod;
     this.updateEnvironmentLighting();
   }
 
@@ -298,218 +312,302 @@ export class GameEngine {
     const isCar = this.vehicleType === 'car';
     const isCockpit = this.cameraView === 'cockpit';
 
-    this.carExterior.root.visible = isCar && !isCockpit;
-    this.carCockpit.root.visible = isCar && isCockpit;
-
-    this.motoExterior.root.visible = !isCar && !isCockpit;
-    this.motoCockpit.root.visible = !isCar && isCockpit;
+    if (isCockpit) {
+      // In cockpit view: show interior dashboard, hide exterior shell
+      this.carExterior.root.visible = false;
+      this.motoExterior.root.visible = false;
+      this.carCockpit.root.visible = isCar;
+      this.motoCockpit.root.visible = !isCar;
+    } else {
+      // In 3rd person chase view: show exterior, hide interior cockpit
+      this.carExterior.root.visible = isCar;
+      this.motoExterior.root.visible = !isCar;
+      this.carCockpit.root.visible = false;
+      this.motoCockpit.root.visible = false;
+    }
   }
 
   private updateEnvironmentLighting() {
-    const times: Record<TimeOfDay, { sky: number; fog: number; sun: number; intensity: number; ambient: number; hemi: number; sunPos: [number, number, number] }> = {
-      dawn: {
-        sky: 0xfb7185, // Morning rose
-        fog: 0xfecdd3, // Soft sunrise mist
-        sun: 0xfde047, // Golden yellow
-        intensity: 1.4,
-        ambient: 0.55,
-        hemi: 0.65,
-        sunPos: [80, 25, 100],
-      },
-      day: {
-        sky: 0x60a5fa, // Crisp blue sky
-        fog: 0xbae6fd, // Gentle horizon haze
-        sun: 0xffedd5, // Bright warm sun
-        intensity: 1.7,
-        ambient: 0.7,
-        hemi: 0.85,
-        sunPos: [60, 90, 80],
-      },
-      sunset: {
-        sky: 0xf97316, // Rich golden orange
-        fog: 0xfed7aa, // Soft golden haze
-        sun: 0xfbbf24, // Warm amber sunset
-        intensity: 1.4,
-        ambient: 0.6,
-        hemi: 0.7,
-        sunPos: [-80, 25, 120],
-      },
-      night: {
-        sky: 0x090d16, // Midnight blue with moon
-        fog: 0x0f172a,
-        sun: 0x93c5fd, // Cool moonlight
-        intensity: 0.5,
-        ambient: 0.35,
-        hemi: 0.4,
-        sunPos: [20, 60, -20],
-      },
-    };
+    let skyColor = 0x60a5fa;
+    let fogColor = 0xbae6fd;
+    let sunColor = 0xffedd5;
+    let sunIntensity = 1.7;
+    let hemiSky = 0xffffff;
+    let hemiGround = 0x334155;
+    let fogDensity = 0.0016;
 
-    const cfg = times[this.timeOfDay];
-    let skyColor = cfg.sky;
-    let fogDensity = 0.0018;
+    switch (this.timeOfDay) {
+      case 'dawn':
+        skyColor = 0xfdba74;
+        fogColor = 0xfed7aa;
+        sunColor = 0xfb923c;
+        sunIntensity = 1.3;
+        hemiSky = 0xfef08a;
+        hemiGround = 0x475569;
+        break;
+      case 'day':
+        skyColor = 0x60a5fa; // Clear natural blue
+        fogColor = 0xbae6fd;
+        sunColor = 0xffedd5;
+        sunIntensity = 1.7;
+        hemiSky = 0xffffff;
+        hemiGround = 0x334155;
+        break;
+      case 'sunset':
+        skyColor = 0xf43f5e;
+        fogColor = 0xfb7185;
+        sunColor = 0xf97316;
+        sunIntensity = 1.4;
+        hemiSky = 0xfca5a5;
+        hemiGround = 0x1e293b;
+        break;
+      case 'night':
+        skyColor = 0x030712;
+        fogColor = 0x090d16;
+        sunColor = 0x38bdf8;
+        sunIntensity = 0.25;
+        hemiSky = 0x1e293b;
+        hemiGround = 0x020617;
+        fogDensity = 0.0028;
+        break;
+    }
 
-    if (this.weather === 'foggy') {
-      fogDensity = 0.012;
-      skyColor = 0x64748b;
-    } else if (this.weather === 'rain') {
-      fogDensity = 0.005;
+    // Weather adjustments
+    if (this.weather === 'rain') {
       skyColor = 0x334155;
+      fogColor = 0x475569;
+      sunIntensity *= 0.55;
+      fogDensity = 0.0035;
+    } else if (this.weather === 'foggy') {
+      fogColor = 0xcfd8dc;
+      skyColor = 0xb0bec5;
+      sunIntensity *= 0.35;
+      fogDensity = 0.0085;
     } else if (this.weather === 'overcast') {
       skyColor = 0x64748b;
+      fogColor = 0x94a3b8;
+      sunIntensity *= 0.65;
+      fogDensity = 0.0022;
     }
 
     this.scene.background = new THREE.Color(skyColor);
-    this.scene.fog = new THREE.FogExp2(cfg.fog, fogDensity);
+    this.scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+    this.sunLight.color.setHex(sunColor);
+    this.sunLight.intensity = sunIntensity;
+    this.hemiLight.color.setHex(hemiSky);
+    this.hemiLight.groundColor.setHex(hemiGround);
 
-    this.sunLight.color.setHex(cfg.sun);
-    this.sunLight.intensity = cfg.intensity;
-    this.sunLight.position.set(cfg.sunPos[0], cfg.sunPos[1], cfg.sunPos[2]);
+    // Headlight Spotlights toggled
+    const isNightOrRain = this.timeOfDay === 'night' || this.timeOfDay === 'sunset' || this.weather === 'rain';
+    const lightsOn = this.physics.headlights || isNightOrRain;
 
-    this.ambientLight.intensity = cfg.ambient;
-    if (this.hemiLight) {
-      this.hemiLight.intensity = cfg.hemi;
-    }
-
-    // Headlight spotlights toggle
-    const isNightOrFog = this.timeOfDay === 'night' || this.weather === 'foggy' || this.weather === 'rain';
-    const lightsOn = this.physics.headlights || isNightOrFog;
-
-    this.carExterior.headlightSpots.forEach((s) => (s.intensity = lightsOn ? 3.0 : 0));
-    this.motoExterior.headlightSpots.forEach((s) => (s.intensity = lightsOn ? 3.0 : 0));
+    this.carExterior.headlightSpots.forEach((s) => (s.visible = lightsOn));
+    this.motoExterior.headlightSpots.forEach((s) => (s.visible = lightsOn));
   }
 
   /**
-   * Procedural Infinite Road and Landscape Mesh Generation
+   * Rebuild Highway Road Geometry with Clearly Visible Multi-Lane Markings & Guardrails
    */
-  private rebuildRoadGeometry(centerDistance: number) {
-    const roadLength = 550; // meters ahead and behind
-    const startS = centerDistance - 90;
-    const endS = centerDistance + roadLength;
-    const step = 4.0; // resolution
-    const steps = Math.floor((endS - startS) / step);
+  private rebuildRoadGeometry(centerDist: number) {
+    const startS = Math.floor((centerDist - 80) / 4) * 4;
+    const endS = centerDist + 520;
+    const stepDist = 3.0; // tight resolution for smooth curves
+    const steps = Math.ceil((endS - startS) / stepDist);
 
-    const roadWidth = HighwaySpline.TOTAL_ROAD_WIDTH;
-    const halfRoad = roadWidth * 0.5;
+    const halfRoad = HighwaySpline.TOTAL_ROAD_WIDTH * 0.5;
 
-    // Road surface vertex buffer
+    // 1. Road Tarmac Vertices
     const roadVerts: number[] = [];
     const roadNorms: number[] = [];
     const roadUvs: number[] = [];
     const roadIndices: number[] = [];
 
-    // Terrain ribbons (left and right landscapes)
+    // 2. Terrain Vertices
     const terrainVerts: number[] = [];
     const terrainNorms: number[] = [];
     const terrainIndices: number[] = [];
 
-    // Road markings vertex buffer
+    // 3. Crisp Road Markings (Solid Yellow Left, 3 Dashed White Lines, Solid White Right)
     const markVerts: number[] = [];
+    const markColors: number[] = [];
     const markIndices: number[] = [];
+
+    // 4. Guardrails (Galvanized steel W-beams along both shoulders)
+    const guardVerts: number[] = [];
+    const guardIndices: number[] = [];
+
+    const addMarkingQuad = (
+      p1L: THREE.Vector3,
+      p1R: THREE.Vector3,
+      p2L: THREE.Vector3,
+      p2R: THREE.Vector3,
+      r: number,
+      g: number,
+      b: number
+    ) => {
+      const base = markVerts.length / 3;
+      const yElev = 0.038; // Raised slightly above tarmac to prevent z-fighting
+      markVerts.push(
+        p1L.x, p1L.y + yElev, p1L.z,
+        p1R.x, p1R.y + yElev, p1R.z,
+        p2L.x, p2L.y + yElev, p2L.z,
+        p2R.x, p2R.y + yElev, p2R.z
+      );
+      for (let c = 0; c < 4; c++) {
+        markColors.push(r, g, b);
+      }
+      markIndices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      // Double side
+      markIndices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+    };
+
+    const addGuardrailSegment = (
+      p1: THREE.Vector3,
+      n1: THREE.Vector3,
+      p2: THREE.Vector3,
+      n2: THREE.Vector3,
+      side: number
+    ) => {
+      const base = guardVerts.length / 3;
+      const offset = side * (halfRoad + 0.35);
+      const railH = 0.75;
+      const railW = 0.28;
+
+      const p1B = p1.clone().addScaledVector(n1, offset);
+      const p2B = p2.clone().addScaledVector(n2, offset);
+
+      guardVerts.push(
+        p1B.x, p1B.y + railH - railW, p1B.z,
+        p1B.x, p1B.y + railH, p1B.z,
+        p2B.x, p2B.y + railH - railW, p2B.z,
+        p2B.x, p2B.y + railH, p2B.z
+      );
+      guardIndices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+      guardIndices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+    };
 
     const p = new THREE.Vector3();
     const normal = new THREE.Vector3();
-    const tempP = new THREE.Vector3();
+    const pNext = new THREE.Vector3();
+    const normalNext = new THREE.Vector3();
 
     for (let i = 0; i <= steps; i++) {
-      const s = startS + i * step;
+      const s = startS + i * stepDist;
       HighwaySpline.getPointAtDistance(s, p);
       HighwaySpline.getNormalAtDistance(s, normal);
 
       // --- ROAD SURFACE ---
-      // Left edge of road
-      tempP.copy(p).addScaledVector(normal, -halfRoad);
-      roadVerts.push(tempP.x, tempP.y, tempP.z);
-      roadNorms.push(0, 1, 0);
-      roadUvs.push(0, s * 0.1);
+      const roadL = p.clone().addScaledVector(normal, -halfRoad);
+      const roadR = p.clone().addScaledVector(normal, halfRoad);
 
-      // Right edge of road
-      tempP.copy(p).addScaledVector(normal, halfRoad);
-      roadVerts.push(tempP.x, tempP.y, tempP.z);
+      roadVerts.push(roadL.x, roadL.y, roadL.z);
       roadNorms.push(0, 1, 0);
-      roadUvs.push(1, s * 0.1);
+      roadUvs.push(0, s * 0.08);
+
+      roadVerts.push(roadR.x, roadR.y, roadR.z);
+      roadNorms.push(0, 1, 0);
+      roadUvs.push(1, s * 0.08);
 
       if (i < steps) {
         const row1 = i * 2;
         const row2 = (i + 1) * 2;
         roadIndices.push(row1, row1 + 1, row2);
         roadIndices.push(row1 + 1, row2 + 1, row2);
-        // Double-sided winding backup
         roadIndices.push(row1, row2, row1 + 1);
         roadIndices.push(row1 + 1, row2, row2 + 1);
       }
 
-      // --- SCENIC TERRAIN MESH (Left and Right outward strips) ---
-      // Left outer terrain (-160m to -halfRoad)
+      // --- COUNTRYSIDE TERRAIN MESH RIBBONS ---
       const tFarL = p.clone().addScaledVector(normal, -170);
-      tFarL.y -= 8.0 + Math.sin(s * 0.02) * 5.0;
-      const tNearL = p.clone().addScaledVector(normal, -halfRoad);
-      tNearL.y -= 0.1;
+      tFarL.y -= 7.0 + Math.sin(s * 0.015) * 4.0;
+      const tNearL = roadL.clone();
+      tNearL.y -= 0.12;
 
-      // Right outer terrain (halfRoad to +160m)
-      const tNearR = p.clone().addScaledVector(normal, halfRoad);
-      tNearR.y -= 0.1;
+      const tNearR = roadR.clone();
+      tNearR.y -= 0.12;
       const tFarR = p.clone().addScaledVector(normal, 170);
-      tFarR.y -= 8.0 + Math.cos(s * 0.02) * 5.0;
+      tFarR.y -= 7.0 + Math.cos(s * 0.015) * 4.0;
 
       const tBase = i * 4;
       terrainVerts.push(tFarL.x, tFarL.y, tFarL.z);
       terrainVerts.push(tNearL.x, tNearL.y, tNearL.z);
       terrainVerts.push(tNearR.x, tNearR.y, tNearR.z);
       terrainVerts.push(tFarR.x, tFarR.y, tFarR.z);
-
       terrainNorms.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
 
       if (i < steps) {
         const nextBase = (i + 1) * 4;
-        // Left strip quads (tFarL -> tNearL)
         terrainIndices.push(tBase, tBase + 1, nextBase);
         terrainIndices.push(tBase + 1, nextBase + 1, nextBase);
-        // Right strip quads (tNearR -> tFarR)
         terrainIndices.push(tBase + 2, tBase + 3, nextBase + 2);
         terrainIndices.push(tBase + 3, nextBase + 3, nextBase + 2);
       }
 
-      // --- ROAD MARKINGS (Dashed lane dividers & Solid shoulder lines) ---
-      const isDashed = Math.floor(s / 6) % 2 === 0;
+      // --- HIGHWAY LANES & MARKINGS GENERATION ---
+      if (i < steps) {
+        const sNext = s + stepDist;
+        HighwaySpline.getPointAtDistance(sNext, pNext);
+        HighwaySpline.getNormalAtDistance(sNext, normalNext);
 
-      const addMarkingQuad = (offset: number, width: number) => {
-        const pL = p.clone().addScaledVector(normal, offset - width * 0.5);
-        const pR = p.clone().addScaledVector(normal, offset + width * 0.5);
-        const startIdx = markVerts.length / 3;
+        // 1. Inner Left Median Line (Solid Vibrant Highway Yellow)
+        const leftShoulderOffset = -halfRoad + 1.2;
+        const yellowWidth = 0.26;
+        addMarkingQuad(
+          p.clone().addScaledVector(normal, leftShoulderOffset - yellowWidth * 0.5),
+          p.clone().addScaledVector(normal, leftShoulderOffset + yellowWidth * 0.5),
+          pNext.clone().addScaledVector(normalNext, leftShoulderOffset - yellowWidth * 0.5),
+          pNext.clone().addScaledVector(normalNext, leftShoulderOffset + yellowWidth * 0.5),
+          1.0, 0.82, 0.1 // Vibrant amber-yellow
+        );
 
-        markVerts.push(pL.x, pL.y + 0.04, pL.z);
-        markVerts.push(pR.x, pR.y + 0.04, pR.z);
-        return startIdx;
-      };
+        // 2. Outer Right Shoulder Line (Solid Crisp White)
+        const rightShoulderOffset = halfRoad - 1.2;
+        const whiteLineWidth = 0.26;
+        addMarkingQuad(
+          p.clone().addScaledVector(normal, rightShoulderOffset - whiteLineWidth * 0.5),
+          p.clone().addScaledVector(normal, rightShoulderOffset + whiteLineWidth * 0.5),
+          pNext.clone().addScaledVector(normalNext, rightShoulderOffset - whiteLineWidth * 0.5),
+          pNext.clone().addScaledVector(normalNext, rightShoulderOffset + whiteLineWidth * 0.5),
+          1.0, 1.0, 1.0 // Pure reflective white
+        );
 
-      // 3 dashed lane dividers
-      if (isDashed) {
-        [-HighwaySpline.LANE_WIDTH, 0, HighwaySpline.LANE_WIDTH].forEach((dividerOffset) => {
-          addMarkingQuad(dividerOffset, 0.22);
-        });
+        // 3. Three Dashed Lane Dividers (Lane 3 | Lane 2 | Lane 1 | Lane 0)
+        // Standard highway dash cycle: 4.5m dash, 5.5m gap (10m cycle)
+        const midS = (s + sNext) * 0.5;
+        const isDashPainted = (midS % 10.0) < 4.5;
+
+        if (isDashPainted) {
+          const dashWidth = 0.22;
+          const laneDividers = [
+            -HighwaySpline.LANE_WIDTH, // between lane 3 & 2
+            0.0,                        // center divider between lane 2 & 1
+            HighwaySpline.LANE_WIDTH,  // between lane 1 & 0
+          ];
+
+          laneDividers.forEach((divOffset) => {
+            addMarkingQuad(
+              p.clone().addScaledVector(normal, divOffset - dashWidth * 0.5),
+              p.clone().addScaledVector(normal, divOffset + dashWidth * 0.5),
+              pNext.clone().addScaledVector(normalNext, divOffset - dashWidth * 0.5),
+              pNext.clone().addScaledVector(normalNext, divOffset + dashWidth * 0.5),
+              1.0, 1.0, 1.0 // Pure reflective white
+            );
+          });
+        }
+
+        // 4. Guardrails along left and right highway shoulders
+        addGuardrailSegment(p, normal, pNext, normalNext, -1);
+        addGuardrailSegment(p, normal, pNext, normalNext, 1);
       }
-
-      // 2 continuous solid shoulder lines
-      addMarkingQuad(-halfRoad + 0.6, 0.25);
-      addMarkingQuad(halfRoad - 0.6, 0.25);
     }
 
-    // Connect markings quads
-    const totalMarkVerts = markVerts.length / 3;
-    for (let m = 0; m < totalMarkVerts - 2; m += 2) {
-      markIndices.push(m, m + 1, m + 2);
-      markIndices.push(m + 1, m + 3, m + 2);
-      markIndices.push(m, m + 2, m + 1);
-      markIndices.push(m + 1, m + 2, m + 3);
-    }
-
-    // Clean old meshes
+    // Remove old meshes
     if (this.roadMesh) this.roadGroup.remove(this.roadMesh);
     if (this.terrainMesh) this.roadGroup.remove(this.terrainMesh);
     if (this.roadMarkingsMesh) this.roadGroup.remove(this.roadMarkingsMesh);
+    if (this.guardrailsMesh) this.roadGroup.remove(this.guardrailsMesh);
 
-    // Build Road Mesh
+    // Build Road Tarmac Mesh
     const roadGeo = new THREE.BufferGeometry();
     roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(roadVerts, 3));
     roadGeo.setAttribute('normal', new THREE.Float32BufferAttribute(roadNorms, 3));
@@ -518,9 +616,9 @@ export class GameEngine {
 
     const isWet = this.weather === 'rain';
     const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x27272a, // Rich highway tarmac asphalt
-      roughness: isWet ? 0.25 : 0.7,
-      metalness: isWet ? 0.35 : 0.05,
+      color: 0x22242a, // Rich highway dark tarmac
+      roughness: isWet ? 0.22 : 0.68,
+      metalness: isWet ? 0.4 : 0.08,
       side: THREE.DoubleSide,
     });
     this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
@@ -534,8 +632,8 @@ export class GameEngine {
     terrainGeo.setIndex(terrainIndices);
 
     const terrainMat = new THREE.MeshStandardMaterial({
-      color: 0x166534, // Lush meadow grass green
-      roughness: 0.9,
+      color: 0x15803d, // Vibrant countryside green
+      roughness: 0.92,
       metalness: 0.02,
       side: THREE.DoubleSide,
     });
@@ -543,22 +641,40 @@ export class GameEngine {
     this.terrainMesh.receiveShadow = true;
     this.roadGroup.add(this.terrainMesh);
 
-    // Build Markings Mesh
+    // Build Visible Lane Markings Mesh
     if (markVerts.length > 0) {
       const markGeo = new THREE.BufferGeometry();
       markGeo.setAttribute('position', new THREE.Float32BufferAttribute(markVerts, 3));
+      markGeo.setAttribute('color', new THREE.Float32BufferAttribute(markColors, 3));
       markGeo.setIndex(markIndices);
+
       const markMat = new THREE.MeshBasicMaterial({
-        color: 0xfef08a, // Crisp highway reflective yellow/white
+        vertexColors: true,
         side: THREE.DoubleSide,
       });
       this.roadMarkingsMesh = new THREE.Mesh(markGeo, markMat);
       this.roadGroup.add(this.roadMarkingsMesh);
     }
+
+    // Build Guardrails Mesh
+    if (guardVerts.length > 0) {
+      const guardGeo = new THREE.BufferGeometry();
+      guardGeo.setAttribute('position', new THREE.Float32BufferAttribute(guardVerts, 3));
+      guardGeo.setIndex(guardIndices);
+
+      const guardMat = new THREE.MeshStandardMaterial({
+        color: 0x94a3b8, // Galvanized metal
+        roughness: 0.35,
+        metalness: 0.85,
+        side: THREE.DoubleSide,
+      });
+      this.guardrailsMesh = new THREE.Mesh(guardGeo, guardMat);
+      this.roadGroup.add(this.guardrailsMesh);
+    }
   }
 
   /**
-   * Spawn Roadside scenery (Streetlights, highway sign gantries, guardrails, trees, distant mountains)
+   * Spawn Roadside scenery (Streetlights, highway sign gantries, trees, distant rolling hills)
    */
   private spawnRoadsideScenery(centerDist: number) {
     this.sceneryGroup.clear();
@@ -569,7 +685,7 @@ export class GameEngine {
     const endS = centerDist + 450;
     const halfRoad = HighwaySpline.TOTAL_ROAD_WIDTH * 0.5;
 
-    // 1. Street Lamp Posts every 45 meters
+    // 1. Street Lamp Posts every 50 meters
     const lampPostGeo = new THREE.CylinderGeometry(0.12, 0.15, 8.5, 8);
     const lampArmGeo = new THREE.CylinderGeometry(0.08, 0.08, 3.2, 8);
     lampArmGeo.rotateZ(Math.PI / 2);
@@ -577,32 +693,27 @@ export class GameEngine {
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x52525b, roughness: 0.4, metalness: 0.8 });
     const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef3c7 });
 
-    for (let s = Math.floor(startS / 45) * 45; s < endS; s += 45) {
+    for (let s = Math.floor(startS / 50) * 50; s < endS; s += 50) {
       const p = HighwaySpline.getPointAtDistance(s);
       const normal = HighwaySpline.getNormalAtDistance(s);
 
-      // Place lamps on both left and right sides
       [-1, 1].forEach((side) => {
         const lampGroup = new THREE.Group();
         const pos = p.clone().addScaledVector(normal, side * (halfRoad + 2.0));
         lampGroup.position.copy(pos);
 
-        // Vertical pole
         const pole = new THREE.Mesh(lampPostGeo, metalMat);
         pole.position.y = 4.25;
         lampGroup.add(pole);
 
-        // Arm reaching over highway
         const arm = new THREE.Mesh(lampArmGeo, metalMat);
         arm.position.set(-side * 1.4, 8.2, 0);
         lampGroup.add(arm);
 
-        // Glowing bulb fixture
         const head = new THREE.Mesh(lampHeadGeo, lampGlowMat);
         head.position.set(-side * 2.8, 8.0, 0);
         lampGroup.add(head);
 
-        // Street light cone at night
         if (this.timeOfDay === 'night' || this.timeOfDay === 'sunset') {
           const streetLight = new THREE.SpotLight(0xfef3c7, 1.8, 45, Math.PI / 3.5, 0.6, 1.5);
           streetLight.position.set(-side * 2.8, 8.0, 0);
@@ -623,25 +734,24 @@ export class GameEngine {
 
     for (let s = Math.floor(startS / 350) * 350; s < endS; s += 350) {
       const p = HighwaySpline.getPointAtDistance(s);
+      const normal = HighwaySpline.getNormalAtDistance(s);
       const tangent = HighwaySpline.getTangentAtDistance(s);
 
       const gantryGroup = new THREE.Group();
       gantryGroup.position.copy(p);
-      gantryGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+      gantryGroup.quaternion.copy(quat);
 
-      // Crossbar
       const bar = new THREE.Mesh(gantryGeo, metalMat);
-      bar.position.y = 8.5;
+      bar.position.set(0, 8.5, 0);
       gantryGroup.add(bar);
 
-      // Support pillars
       const pillarL = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 8.5), metalMat);
       pillarL.position.set(-halfRoad - 1.5, 4.25, 0);
       const pillarR = pillarL.clone();
       pillarR.position.x = halfRoad + 1.5;
       gantryGroup.add(pillarL, pillarR);
 
-      // Green Overhead Signs
       const signL = new THREE.Mesh(signBoardGeo, signBoardMat);
       signL.position.set(-4.0, 8.5, 0.25);
       const signR = new THREE.Mesh(signBoardGeo, signBoardMat);
@@ -653,27 +763,27 @@ export class GameEngine {
     }
 
     // 3. Mountains in background & Roadside Trees
-    const mountainGeo = new THREE.ConeGeometry(85, 90, 6);
+    const mountainGeo = new THREE.ConeGeometry(90, 95, 6);
     const mountainMat = new THREE.MeshStandardMaterial({
-      color: 0x334155, // Blue-grey mountain slate
+      color: 0x334155,
       roughness: 0.95,
       metalness: 0.0,
     });
 
     const treeTrunkGeo = new THREE.CylinderGeometry(0.3, 0.45, 4.0, 6);
-    const treeLeavesGeo = new THREE.ConeGeometry(3.0, 6.5, 6);
+    const treeLeavesGeo = new THREE.ConeGeometry(3.2, 6.8, 6);
     const treeTrunkMat = new THREE.MeshStandardMaterial({
-      color: 0x78350f, // Warm rich bark brown
+      color: 0x78350f,
       roughness: 0.85,
       metalness: 0.0,
     });
     const treeLeavesMat = new THREE.MeshStandardMaterial({
-      color: 0x16a34a, // Fresh vibrant forest green
+      color: 0x16a34a,
       roughness: 0.65,
       metalness: 0.0,
     });
     const treeLeavesMatAlt = new THREE.MeshStandardMaterial({
-      color: 0x22c55e, // Lighter green highlight
+      color: 0x22c55e,
       roughness: 0.65,
       metalness: 0.0,
     });
@@ -682,7 +792,6 @@ export class GameEngine {
       const p = HighwaySpline.getPointAtDistance(s);
       const normal = HighwaySpline.getNormalAtDistance(s);
 
-      // Trees along shoulder
       [-1, 1].forEach((side, sideIdx) => {
         const tree = new THREE.Group();
         const treePos = p.clone().addScaledVector(normal, side * (halfRoad + 6 + Math.random() * 12));
@@ -701,7 +810,6 @@ export class GameEngine {
         this.sceneryGroup.add(tree);
       });
 
-      // Distant rolling mountain every ~140m
       if (Math.floor(s) % 140 === 0) {
         const mountain = new THREE.Mesh(mountainGeo, mountainMat);
         const mPos = p.clone().addScaledVector(normal, (Math.random() > 0.5 ? 1 : -1) * (180 + Math.random() * 50));
@@ -713,7 +821,7 @@ export class GameEngine {
   }
 
   /**
-   * Main Simulation Step
+   * Main Simulation Step - Realistic Vehicle Physics & In-Dash Cockpit Rendering
    */
   public update(delta: number) {
     if (delta > 0.1) delta = 0.1;
@@ -727,13 +835,13 @@ export class GameEngine {
     const isShift = !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
 
     const isCar = this.vehicleType === 'car';
-    const maxSpeed = isCar ? 155 : 190; // mph top speed
-    const boostSpeed = isCar ? 195 : 230; // boost top speed
-    const accelRate = isCar ? 32 : 46; // mph/s acceleration
+    const maxSpeed = isCar ? 160 : 195; // mph top speed
+    const boostSpeed = isCar ? 205 : 240; // boost top speed
+    const accelRate = isCar ? 34 : 48; // mph/s acceleration
 
     // Throttle & Brake
     this.physics.throttle = isW ? 1 : 0;
-    this.physics.brake = isSpace ? 1 : isS ? 0.6 : 0;
+    this.physics.brake = isSpace ? 1 : isS ? 0.65 : 0;
 
     // Boost logic
     if (isShift && this.physics.boostFuel > 0 && isW) {
@@ -750,35 +858,67 @@ export class GameEngine {
       const boostBonus = this.physics.isBoosting ? 2.2 : 1.0;
       this.physics.speed = Math.min(currentMax, this.physics.speed + accelRate * boostBonus * delta);
     } else if (this.physics.brake > 0) {
-      const brakeForce = isSpace ? 80 : 38;
+      const brakeForce = isSpace ? 85 : 42;
       this.physics.speed = Math.max(0, this.physics.speed - brakeForce * delta);
     } else {
-      // Natural rolling drag
-      this.physics.speed = Math.max(0, this.physics.speed - 12 * delta);
+      // Natural rolling aerodynamic drag
+      this.physics.speed = Math.max(0, this.physics.speed - (8 + this.physics.speed * 0.04) * delta);
     }
 
-    // Steering & Lane Offset
-    const steerSpeed = 2.4;
+    // --- 2. PHYSICALLY REALISTIC STEERING & LANE CHANGING ---
+    const speedMps = this.physics.speed * 0.44704;
+
+    // Speed-sensitive steering rack ratio:
+    // At low speeds (20 mph), steering is responsive; at 120 mph, steering is smooth and stable
+    const speedSensitivity = Math.max(0.28, Math.min(1.0, 48 / Math.max(15, this.physics.speed)));
     let targetSteer = 0;
-    if (isA) targetSteer -= 1;
-    if (isD) targetSteer += 1;
+    if (isA) targetSteer += 1.0; // steer left toward lower laneOffset
+    if (isD) targetSteer -= 1.0; // steer right toward higher laneOffset
 
-    this.physics.steerAngle = THREE.MathUtils.lerp(this.physics.steerAngle, targetSteer, delta * 8);
+    // Dynamic steering rack turning with natural inertia
+    const steerSpeed = 6.2;
+    this.physics.steerAngle = THREE.MathUtils.lerp(this.physics.steerAngle, targetSteer * speedSensitivity, delta * steerSpeed);
 
-    // Lateral movement across highway
-    const lateralSpeed = this.physics.steerAngle * (this.physics.speed / 50) * 8.5;
-    this.physics.laneOffset -= lateralSpeed * delta;
+    // 3D Steering wheel visual rotation in driver's hands (up to 240 degrees)
+    const targetWheelAngle = this.physics.steerAngle * Math.PI * 1.35;
+    this.physics.steeringWheelAngle = THREE.MathUtils.lerp(this.physics.steeringWheelAngle, targetWheelAngle, delta * 14);
 
-    // Highway boundaries (shoulder limit)
+    // Physical Lateral Force & Tire Cornering Grip:
+    // Tires develop lateral acceleration proportional to steer angle and forward speed
+    const maxLatVel = Math.min(speedMps * 0.4, 15.0);
+    const targetLatVel = this.physics.steerAngle * maxLatVel;
+    this.physics.lateralVelocity = THREE.MathUtils.lerp(this.physics.lateralVelocity, targetLatVel, delta * 7.5);
+
+    // Integrate lane offset
+    this.physics.laneOffset -= this.physics.lateralVelocity * delta;
+
+    // Boundary clamping (guardrails at highway shoulder edges)
     const maxOffset = HighwaySpline.TOTAL_ROAD_WIDTH * 0.5 - 1.2;
-    this.physics.laneOffset = THREE.MathUtils.clamp(this.physics.laneOffset, -maxOffset, maxOffset);
+    if (Math.abs(this.physics.laneOffset) > maxOffset) {
+      this.physics.laneOffset = THREE.MathUtils.clamp(this.physics.laneOffset, -maxOffset, maxOffset);
+      this.physics.lateralVelocity *= -0.25; // slight elastic bump off guardrail
+      this.physics.speed = Math.max(0, this.physics.speed - 30 * delta);
+    }
+
+    // Realistic Chassis Suspension Roll & Pitch:
+    // Centrifugal force rolls the car chassis outward into the turn
+    // In a motorcycle, counter-steering leans the bike dramatically inward into the turn
+    const targetRoll = isCar
+      ? -this.physics.lateralVelocity * 0.038
+      : this.physics.lateralVelocity * 0.16 * Math.min(1.0, speedMps / 12);
+    this.physics.roll = THREE.MathUtils.lerp(this.physics.roll, targetRoll, delta * 10);
+
+    // Chassis Pitch (Squat on acceleration, dive on braking)
+    const targetPitch = (this.physics.brake * -0.04) + (this.physics.throttle * (this.physics.isBoosting ? 0.045 : 0.02));
+    this.physics.pitch = THREE.MathUtils.lerp(this.physics.pitch, targetPitch, delta * 8);
+
+    // Yaw heading alignment with road
+    this.physics.yaw = (this.physics.lateralVelocity / Math.max(8, speedMps)) * 0.3;
 
     // RPM & Gear calculation
     const maxRpm = isCar ? 8000 : 13000;
     const idleRpm = isCar ? 900 : 1200;
-
-    // 6-speed transmission simulation
-    const gearRatios = isCar ? [30, 55, 85, 115, 145, 210] : [45, 75, 110, 145, 175, 240];
+    const gearRatios = isCar ? [30, 55, 85, 115, 145, 215] : [45, 75, 110, 145, 175, 245];
     let gear = 1;
     for (let g = 0; g < gearRatios.length; g++) {
       if (this.physics.speed <= gearRatios[g] || g === gearRatios.length - 1) {
@@ -788,18 +928,16 @@ export class GameEngine {
     }
     this.physics.gear = gear;
 
-    // RPM calculation within current gear
     const prevRatio = gear === 1 ? 0 : gearRatios[gear - 2];
     const nextRatio = gearRatios[gear - 1];
     const gearProgress = Math.min(1, Math.max(0, (this.physics.speed - prevRatio) / (nextRatio - prevRatio)));
     this.physics.rpm = idleRpm + gearProgress * (maxRpm - idleRpm) * (this.physics.throttle > 0 ? 1 : 0.8);
 
     // Odometer & Forward travel
-    const speedMps = this.physics.speed * 0.44704;
     this.physics.highwayDistance += speedMps * delta;
     this.physics.odometerMiles += (this.physics.speed * delta) / 3600;
 
-    // 2. Day-Night Auto Cycle
+    // 3. Day-Night Auto Cycle
     if (this.autoTimeCycle) {
       this.timeCycleProgress = (this.timeCycleProgress + delta * 0.006) % 1;
       if (this.timeCycleProgress < 0.25) this.timeOfDay = 'night';
@@ -809,27 +947,40 @@ export class GameEngine {
       this.updateEnvironmentLighting();
     }
 
-    // 3. Dynamic Road Regeneration
-    // If player traveled 80 meters since last road build, rebuild chunks ahead
-    if (!this.lastRebuildDist || this.physics.highwayDistance - this.lastRebuildDist > 70) {
-      this.lastRebuildDist = this.physics.highwayDistance;
-      this.rebuildRoadGeometry(this.physics.highwayDistance);
-      this.spawnRoadsideScenery(this.physics.highwayDistance);
-    }
+    // 4. Update Engine Sounds
+    soundEngine.update(
+      this.physics.speed,
+      this.physics.rpm,
+      this.physics.throttle,
+      this.physics.brake > 0.1,
+      this.physics.isBoosting,
+      this.physics.isDrifting,
+      this.weather === 'rain'
+    );
 
-    // 4. Update AI Traffic
-    const playerWidth = isCar ? 2.0 : 0.9;
-    const playerLength = isCar ? 4.4 : 2.2;
+    // 5. Update Traffic AI Simulation
+    const playerW = isCar ? 2.0 : 0.8;
+    const playerL = isCar ? 4.6 : 2.2;
     this.trafficManager.update(
       delta,
       this.physics.highwayDistance,
       this.physics.laneOffset,
       this.physics.speed,
-      playerWidth,
-      playerLength
+      playerW,
+      playerL
     );
 
-    // 5. Update Player Vehicle 3D Transform
+    // 6. Update Road & Scenery Chunks
+    if (
+      !this.roadMesh ||
+      this.physics.highwayDistance > (this.roadMesh.userData.lastCenter || 0) + 120
+    ) {
+      this.rebuildRoadGeometry(this.physics.highwayDistance);
+      if (this.roadMesh) this.roadMesh.userData.lastCenter = this.physics.highwayDistance;
+      this.spawnRoadsideScenery(this.physics.highwayDistance);
+    }
+
+    // 7. Update Player Vehicle 3D Transform
     const playerPos = HighwaySpline.getPointWithOffset(this.physics.highwayDistance, this.physics.laneOffset);
     const tangent = HighwaySpline.getTangentAtDistance(this.physics.highwayDistance);
 
@@ -837,18 +988,16 @@ export class GameEngine {
     this.physics.worldY = playerPos.y;
     this.physics.worldZ = playerPos.z;
 
-    // Roll angle (leaning into turns for motorcycle, subtle chassis roll for car)
-    const targetRoll = isCar
-      ? -this.physics.steerAngle * 0.06
-      : -this.physics.steerAngle * 0.48 * Math.min(1, this.physics.speed / 30);
-    this.physics.roll = THREE.MathUtils.lerp(this.physics.roll, targetRoll, delta * 10);
-
     const vehicleQuat = new THREE.Quaternion();
     vehicleQuat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
     const rollQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.physics.roll);
     vehicleQuat.multiply(rollQuat);
 
-    // Update Player Car / Moto transform
+    // Pitch quat
+    const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), this.physics.pitch);
+    vehicleQuat.multiply(pitchQuat);
+
+    // Update active player vehicle
     const activeExterior = isCar ? this.carExterior : this.motoExterior;
     const activeCockpit = isCar ? this.carCockpit : this.motoCockpit;
 
@@ -858,9 +1007,13 @@ export class GameEngine {
     activeCockpit.root.position.copy(playerPos);
     activeCockpit.root.quaternion.copy(vehicleQuat);
 
-    // Wheel rotation
+    // Wheel rotation & steering turning
     const wheelRotSpeed = speedMps * delta * 2.8;
-    activeExterior.wheels.forEach((w) => {
+    activeExterior.wheels.forEach((w, idx) => {
+      // Front wheels steer with steering rack
+      if (idx === 0 || idx === 1) {
+        w.rotation.y = this.physics.steerAngle * 0.45;
+      }
       w.rotation.x += wheelRotSpeed;
     });
 
@@ -890,32 +1043,36 @@ export class GameEngine {
       (br.material as THREE.Material) = isBlinkingR ? Vehicles3D.blinkerOnMaterial : Vehicles3D.blinkerOffMaterial;
     });
 
-    // Nitro flames
+    // Exhaust flames during boost
     activeExterior.exhaustFlames.forEach((flame) => {
-      (flame.material as THREE.MeshBasicMaterial).opacity = this.physics.isBoosting ? 0.95 : 0.0;
+      const flameMat = flame.material as THREE.MeshBasicMaterial;
+      flameMat.opacity = this.physics.isBoosting ? 0.95 : 0.0;
       if (this.physics.isBoosting) {
-        flame.scale.set(1 + Math.random() * 0.4, 1 + Math.random() * 0.6, 1);
+        flame.scale.set(1 + Math.random() * 0.4, 1 + Math.random() * 0.5, 1 + Math.random() * 0.4);
       }
     });
 
-    // Cockpit Steering Wheel / Handlebars movement
-    if (isCar) {
-      this.carCockpit.steeringWheel.rotation.z = -this.physics.steerAngle * 1.8;
+    // --- 8. UPDATE IN-DASH 3D COCKPIT SCREENS (Behind Wheel & Center Console) ---
+    this.cockpitScreens.renderGaugeCluster(this.physics, this.blinkerFlashState, this.vehicleType);
+    this.cockpitScreens.renderInfotainment(delta, this.physics.speed);
 
-      // Wipers animation in rain
+    // Car Cockpit Controls: Steering wheel rotation & Wipers
+    if (isCar) {
+      this.carCockpit.steeringWheel.rotation.z = this.physics.steeringWheelAngle;
+
       if (this.weather === 'rain') {
-        this.wiperAngle += delta * 5.0 * this.wiperDirection;
-        if (this.wiperAngle > 1.2) this.wiperDirection = -1;
-        if (this.wiperAngle < -0.2) this.wiperDirection = 1;
+        this.wiperAngle += delta * 4.2 * this.wiperDirection;
+        if (this.wiperAngle > Math.PI / 2.2) this.wiperDirection = -1;
+        if (this.wiperAngle < 0) this.wiperDirection = 1;
 
         this.carCockpit.wiperLeft.rotation.z = -Math.PI / 3 + this.wiperAngle;
         this.carCockpit.wiperRight.rotation.z = -Math.PI / 3 + this.wiperAngle;
       }
     } else {
-      this.motoCockpit.handlebars.rotation.y = -this.physics.steerAngle * 0.4;
+      this.motoCockpit.handlebars.rotation.y = -this.physics.steerAngle * 0.35;
     }
 
-    // 6. Camera Positioning & Sunlight Tracking
+    // 9. Camera Positioning & Sunlight Tracking
     if (this.sunLight && this.sunLight.target) {
       this.sunLight.position.set(playerPos.x + 60, playerPos.y + 110, playerPos.z + 70);
       this.sunLight.target.position.copy(playerPos);
@@ -923,20 +1080,25 @@ export class GameEngine {
     }
 
     if (this.cameraView === 'cockpit') {
-      // Driver cockpit seat position
-      const eyeOffset = isCar ? new THREE.Vector3(-0.42, 0.62, 0.05) : new THREE.Vector3(0, 0.85, -0.15);
+      // Driver's POV (Eyes seated directly behind steering wheel & dashboard)
+      // For car: x = -0.42 (driver seat), y = 0.58 (eye height), z = 0.05
+      // Directly ahead is the steering wheel, behind it the meters, to the right Spotify!
+      const eyeOffset = isCar
+        ? new THREE.Vector3(-0.42, 0.58, 0.04)
+        : new THREE.Vector3(0, 0.82, -0.05);
+
       eyeOffset.applyQuaternion(vehicleQuat);
       this.camera.position.copy(playerPos).add(eyeOffset);
 
       // Look forward along road heading
-      const lookTarget = playerPos.clone().add(tangent.clone().multiplyScalar(40));
-      lookTarget.y += isCar ? 0.62 : 0.85;
+      const lookTarget = playerPos.clone().add(tangent.clone().multiplyScalar(45));
+      lookTarget.y += isCar ? 0.58 : 0.82;
       this.camera.lookAt(lookTarget);
 
       // Match vehicle roll/bank
       this.camera.rotation.z += this.physics.roll * (isCar ? 0.3 : 0.85);
 
-      // FOV effect during Nitro Boost
+      // Dynamic FOV effect during Nitro Boost
       const targetFov = this.physics.isBoosting ? 78 : 65;
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, delta * 5);
       this.camera.updateProjectionMatrix();
@@ -960,55 +1122,45 @@ export class GameEngine {
       this.camera.updateProjectionMatrix();
     }
 
-    // 7. Rain Particles Follow Camera
+    // 10. Rain Particles Follow Camera
     if (this.rainParticles && this.rainGeometry && this.weather === 'rain') {
       this.rainParticles.position.copy(this.camera.position);
       const posAttr = this.rainGeometry.getAttribute('position') as THREE.BufferAttribute;
       const array = posAttr.array as Float32Array;
-      const rainSpeed = 25 * delta;
+      const rainSpeed = 26 * delta;
 
       for (let i = 0; i < array.length / 3; i++) {
         array[i * 3 + 1] -= rainSpeed;
         if (array[i * 3 + 1] < -5) {
-          array[i * 3 + 1] = 20 + Math.random() * 5;
+          array[i * 3 + 1] = 20;
         }
       }
       posAttr.needsUpdate = true;
     }
 
-    // 8. Sound Engine Update
-    soundEngine.update(
-      this.physics.speed,
-      this.physics.rpm,
-      this.physics.throttle,
-      this.physics.brake > 0.2,
-      this.physics.isBoosting,
-      this.physics.isDrifting,
-      this.weather === 'rain'
-    );
-
-    // 9. Notify React HUD
+    // 11. Notify React HUD (every 2nd frame)
     if (this.onPhysicsUpdate) {
       this.onPhysicsUpdate({ ...this.physics });
     }
-
-    // 10. Render
-    this.renderer.render(this.scene, this.camera);
   }
 
-  private lastRebuildDist: number = 0;
+  public render() {
+    this.renderer.render(this.scene, this.camera);
+  }
 
   public start() {
     if (this.isRunning) return;
     this.isRunning = true;
     this.lastTime = performance.now();
 
-    const loop = (currentTime: number) => {
+    const loop = (time: number) => {
       if (!this.isRunning) return;
-      const delta = (currentTime - this.lastTime) / 1000;
-      this.lastTime = currentTime;
+      const delta = Math.min((time - this.lastTime) / 1000, 0.1);
+      this.lastTime = time;
 
       this.update(delta);
+      this.render();
+
       this.animFrameId = requestAnimationFrame(loop);
     };
 
@@ -1017,7 +1169,7 @@ export class GameEngine {
 
   public stop() {
     this.isRunning = false;
-    if (this.animFrameId) {
+    if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
@@ -1026,9 +1178,9 @@ export class GameEngine {
   public destroy() {
     this.stop();
     window.removeEventListener('resize', this.onWindowResize);
-    this.renderer.dispose();
-    if (this.container && this.renderer.domElement) {
-      this.container.removeChild(this.renderer.domElement);
+    if (this.renderer.domElement.parentElement) {
+      this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
     }
+    this.renderer.dispose();
   }
 }

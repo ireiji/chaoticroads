@@ -30,6 +30,7 @@ import {
   VolumeX,
   Sparkles,
   Zap,
+  Music,
 } from 'lucide-react';
 
 interface Props {
@@ -47,6 +48,7 @@ interface Props {
   onSetTimeOfDay: (time: TimeOfDay) => void;
   onSetAutoTimeCycle: (enabled: boolean) => void;
   onToggleHelp: () => void;
+  onOpenSpotifyModal?: () => void;
   physics: VehiclePhysicsState;
 }
 
@@ -65,6 +67,7 @@ export const ControlsHUD: React.FC<Props> = ({
   onSetTimeOfDay,
   onSetAutoTimeCycle,
   onToggleHelp,
+  onOpenSpotifyModal,
   physics,
 }) => {
   const [showSettings, setShowSettings] = useState(false);
@@ -172,6 +175,17 @@ export const ControlsHUD: React.FC<Props> = ({
           >
             <Sliders className="w-4 h-4" />
           </button>
+
+          {/* Spotify & Radio Modal trigger */}
+          {onOpenSpotifyModal && (
+            <button
+              onClick={onOpenSpotifyModal}
+              className="p-2 rounded-xl bg-zinc-950/85 border border-zinc-800/80 text-emerald-400 hover:text-white hover:bg-emerald-950/50 backdrop-blur-md transition-all"
+              title="Configure Spotify or Radio Stations"
+            >
+              <Music className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Mute toggle */}
           <button
