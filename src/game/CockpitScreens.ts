@@ -98,194 +98,165 @@ export class CockpitScreens {
     const w = this.gaugeCanvas.width;
     const h = this.gaugeCanvas.height;
 
-    // Dark high-contrast sports cluster background
-    ctx.fillStyle = '#06080e';
+    // Slow Roads aesthetic dark cluster background
+    ctx.fillStyle = '#181b1c';
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle metallic carbon / bezel border
-    const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, '#0f172a');
-    gradient.addColorStop(1, '#020617');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(12, 12, w - 24, h - 24);
+    // Arched cluster pod outline (Slow Roads binnacle shape)
+    const podX = 60;
+    const podY = 30;
+    const podW = w - 120;
+    const podH = h - 60;
 
-    // Header bar (Time, Drive Mode, Indicators)
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(20, 20, w - 40, 48);
+    // Pod background with warm bronze/charcoal gradient
+    const podGrad = ctx.createLinearGradient(0, podY, 0, podY + podH);
+    podGrad.addColorStop(0, '#262928');
+    podGrad.addColorStop(0.4, '#1f2221');
+    podGrad.addColorStop(1, '#181a1a');
 
-    // Drive Mode Pill
-    ctx.fillStyle = physics.isBoosting ? '#ef4444' : '#0284c7';
+    ctx.save();
     ctx.beginPath();
-    ctx.roundRect(36, 28, 120, 32, 6);
-    ctx.fill();
-    ctx.font = 'bold 15px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.fillText(physics.isBoosting ? '⚡ NITRO' : 'SPORT MODE', 96, 50);
-
-    // Left Blinker Arrow
-    const isBlinkL = physics.leftBlinker && blinkerState;
-    ctx.fillStyle = isBlinkL ? '#22c55e' : '#334155';
-    ctx.beginPath();
-    ctx.moveTo(340, 44);
-    ctx.lineTo(365, 30);
-    ctx.lineTo(365, 38);
-    ctx.lineTo(385, 38);
-    ctx.lineTo(385, 50);
-    ctx.lineTo(365, 50);
-    ctx.lineTo(365, 58);
-    ctx.closePath();
+    // Arched top with rounded corners matching IMG_7411.png
+    ctx.roundRect(podX, podY, podW, podH, [160, 160, 24, 24]);
+    ctx.fillStyle = podGrad;
     ctx.fill();
 
-    // High Beams / Headlights Icon
-    ctx.fillStyle = physics.headlights ? '#38bdf8' : '#334155';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('💡 HEADLIGHTS', 512, 51);
+    // Subtle ambient inner rim stroke
+    ctx.strokeStyle = '#353a39';
+    ctx.lineWidth = 4;
+    ctx.stroke();
 
-    // Right Blinker Arrow
-    const isBlinkR = physics.rightBlinker && blinkerState;
-    ctx.fillStyle = isBlinkR ? '#22c55e' : '#334155';
-    ctx.beginPath();
-    ctx.moveTo(684, 44);
-    ctx.lineTo(659, 30);
-    ctx.lineTo(659, 38);
-    ctx.lineTo(639, 38);
-    ctx.lineTo(639, 50);
-    ctx.lineTo(659, 50);
-    ctx.lineTo(659, 58);
-    ctx.closePath();
+    // Soft inner glow vignette
+    const innerGlow = ctx.createRadialGradient(w / 2, podY + podH * 0.45, podW * 0.15, w / 2, podY + podH * 0.45, podW * 0.6);
+    innerGlow.addColorStop(0, 'rgba(255, 255, 255, 0.04)');
+    innerGlow.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+    ctx.fillStyle = innerGlow;
     ctx.fill();
 
-    // Status message on right of header
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'right';
-    ctx.fillText(vehicleType === 'car' ? 'HIGHWAY V8 TURBO' : '1000CC SUPERBIKE', w - 40, 50);
-
-    // --- MAIN SPEEDOMETER (CENTER) ---
+    // --- LEFT SECTION: DIGITAL SPEED (IMG_7411.png) ---
     const speed = Math.round(physics.speed);
     ctx.textAlign = 'center';
 
-    // Speed display arc
-    const centerX = w / 2;
-    const centerY = 270;
-    const radius = 160;
+    // Speed value
+    ctx.font = '500 96px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillText(speed.toString(), 250, 255);
 
-    // Background arc
+    // KPH / MPH label below speed
+    ctx.font = '600 20px sans-serif';
+    ctx.fillStyle = '#7a8587';
+    ctx.fillText('MPH', 250, 298);
+
+    // --- CENTER SECTION: DYNAMIC ROAD TRAJECTORY & ODOMETER (IMG_7411.png) ---
+    // 1. Dynamic curving road line matching IMG_7411.png (curves left when steering left, curves right when steering right)
+    const curveOffset = THREE.MathUtils.clamp((physics.steerAngle * 130) + (physics.yawRate * 80), -140, 140);
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, Math.PI * 0.75, Math.PI * 2.25);
-    ctx.lineWidth = 14;
-    ctx.strokeStyle = '#1e293b';
+    ctx.moveTo(512, 305);
+    ctx.bezierCurveTo(512, 245, 512 + curveOffset * 0.55, 205, 512 + curveOffset, 160);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.35)';
+    ctx.shadowBlur = 8;
     ctx.stroke();
+    ctx.shadowBlur = 0; // reset
 
-    // Active speed arc
-    const maxSpeed = vehicleType === 'car' ? 200 : 240;
-    const speedAngle = Math.PI * 0.75 + (Math.min(speed, maxSpeed) / maxSpeed) * (Math.PI * 1.5);
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, Math.PI * 0.75, speedAngle);
-    ctx.lineWidth = 14;
-    const speedGrad = ctx.createLinearGradient(centerX - radius, centerY, centerX + radius, centerY);
-    speedGrad.addColorStop(0, '#38bdf8');
-    speedGrad.addColorStop(0.7, '#3b82f6');
-    speedGrad.addColorStop(1, '#ef4444');
-    ctx.strokeStyle = speedGrad;
-    ctx.stroke();
+    // 2. Odometer (e.g. 00020 KM / MI) with styled leading zeros
+    const odoTotal = Math.floor(physics.odometerMiles);
+    const odoStr = odoTotal.toString().padStart(5, '0');
+    const activeLen = odoTotal.toString().length;
+    const leadingZeros = odoStr.slice(0, 5 - activeLen);
+    const activeDigits = odoStr.slice(5 - activeLen);
 
-    // Center Speed Digits
-    ctx.font = 'bold 96px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(speed.toString(), centerX, centerY + 30);
-
-    ctx.font = 'bold 24px sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('MPH', centerX, centerY + 65);
-
-    // Current Gear Box
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.roundRect(centerX - 40, centerY + 80, 80, 50, 8);
-    ctx.fill();
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText(physics.gear.toString(), centerX, centerY + 118);
-
-    // --- LEFT DIAL: TACHOMETER (RPM) ---
-    const leftDialX = 220;
-    const leftDialY = 300;
-    const dialR = 125;
-
-    // RPM dial background arc
-    ctx.beginPath();
-    ctx.arc(leftDialX, leftDialY, dialR, Math.PI * 0.75, Math.PI * 2.25);
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = '#1e293b';
-    ctx.stroke();
-
-    // Active RPM arc
-    const maxRpm = vehicleType === 'car' ? 8000 : 13000;
-    const rpmFraction = Math.min(1, Math.max(0, physics.rpm / maxRpm));
-    const rpmAngle = Math.PI * 0.75 + rpmFraction * (Math.PI * 1.5);
-
-    ctx.beginPath();
-    ctx.arc(leftDialX, leftDialY, dialR, Math.PI * 0.75, rpmAngle);
-    ctx.lineWidth = 10;
-    const rpmGrad = ctx.createLinearGradient(leftDialX - dialR, leftDialY, leftDialX + dialR, leftDialY);
-    rpmGrad.addColorStop(0, '#22c55e');
-    rpmGrad.addColorStop(0.75, '#eab308');
-    rpmGrad.addColorStop(0.9, '#ef4444');
-    ctx.strokeStyle = rpmGrad;
-    ctx.stroke();
-
-    // RPM readout
-    ctx.font = 'bold 44px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(Math.round(physics.rpm).toString(), leftDialX, leftDialY + 12);
-    ctx.font = '14px sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText('RPM x1000', leftDialX, leftDialY + 36);
-
-    // --- RIGHT DIAL: BOOST & TELEMETRY ---
-    const rightDialX = w - 220;
-    const rightDialY = 300;
-
-    // Boost fuel arc
-    ctx.beginPath();
-    ctx.arc(rightDialX, rightDialY, dialR, Math.PI * 0.75, Math.PI * 2.25);
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = '#1e293b';
-    ctx.stroke();
-
-    const boostFraction = Math.min(1, Math.max(0, physics.boostFuel / 100));
-    const boostAngle = Math.PI * 0.75 + boostFraction * (Math.PI * 1.5);
-
-    ctx.beginPath();
-    ctx.arc(rightDialX, rightDialY, dialR, Math.PI * 0.75, boostAngle);
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = physics.isBoosting ? '#38bdf8' : '#0284c7';
-    ctx.stroke();
-
-    // Boost text
-    ctx.font = 'bold 38px sans-serif';
-    ctx.fillStyle = physics.isBoosting ? '#38bdf8' : '#ffffff';
-    ctx.fillText(`${Math.round(physics.boostFuel)}%`, rightDialX, rightDialY + 10);
-    ctx.font = '14px sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText('NITRO BOOST', rightDialX, rightDialY + 34);
-
-    // Bottom telemetry footer
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(20, h - 55, w - 40, 40);
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.textAlign = 'left';
-    ctx.fillText(`TRIP: ${physics.odometerMiles.toFixed(1)} MI`, 45, h - 30);
-
-    ctx.textAlign = 'center';
-    ctx.fillText(`THROTTLE: ${Math.round(physics.throttle * 100)}%   |   BRAKE: ${Math.round(physics.brake * 100)}%`, centerX, h - 30);
-
+    ctx.font = '600 28px monospace';
+    // Draw leading zeros in muted tone
     ctx.textAlign = 'right';
-    ctx.fillText(`DIST: ${(physics.highwayDistance / 1000).toFixed(2)} KM`, w - 45, h - 30);
+    ctx.fillStyle = '#555f61';
+    ctx.fillText(leadingZeros, 512 - (activeDigits.length * 8), 350);
+    // Draw active digits in warm white
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(activeDigits, 512 - (activeDigits.length * 8), 350);
+
+    // KM / MI label
+    ctx.textAlign = 'center';
+    ctx.font = '600 13px sans-serif';
+    ctx.fillStyle = '#717c7e';
+    ctx.fillText('MI', 512, 372);
+
+    // 3. Digital Clock matching IMG_7411.png (e.g. 08:12)
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillStyle = '#838e90';
+    ctx.fillText(`${hours}:${minutes}`, 512, 412);
+
+    // --- RIGHT SECTION: LIGHTNING BOLT & AWD (IMG_7411.png) ---
+    // 1. Lightning Bolt symbol ⚡
+    ctx.save();
+    ctx.translate(770, 225);
+    ctx.fillStyle = physics.isBoosting ? '#38bdf8' : '#f1f5f9';
+    ctx.shadowColor = physics.isBoosting ? '#38bdf8' : 'rgba(255, 255, 255, 0.3)';
+    ctx.shadowBlur = physics.isBoosting ? 16 : 6;
+    ctx.beginPath();
+    ctx.moveTo(3, -22);
+    ctx.lineTo(-14, 2);
+    ctx.lineTo(-2, 2);
+    ctx.lineTo(-6, 22);
+    ctx.lineTo(14, -2);
+    ctx.lineTo(2, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 2. AWD badge below bolt
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = '#788486';
+    ctx.fillText('AWD', 770, 285);
+
+    // 3. Energy / Nitro Fuel gauge line
+    const fuelW = 90;
+    const fuelX = 770 - fuelW / 2;
+    const fuelY = 305;
+    ctx.fillStyle = '#2d3334';
+    ctx.beginPath();
+    ctx.roundRect(fuelX, fuelY, fuelW, 6, 3);
+    ctx.fill();
+
+    const currentFuelW = (physics.boostFuel / 100) * fuelW;
+    ctx.fillStyle = physics.isBoosting ? '#38bdf8' : '#e2e8f0';
+    ctx.beginPath();
+    ctx.roundRect(fuelX, fuelY, currentFuelW, 6, 3);
+    ctx.fill();
+
+    // --- INDICATORS (Blinkers & Headlights) ---
+    if (physics.leftBlinker && blinkerState) {
+      ctx.fillStyle = '#22c55e';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillText('◀', 160, 95);
+    }
+    if (physics.rightBlinker && blinkerState) {
+      ctx.fillStyle = '#22c55e';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillText('▶', w - 160, 95);
+    }
+    if (physics.headlights) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('💡', 512, 105);
+    }
+
+    // Spotify track ticker along bottom edge if connected
+    const currentTrack = spotifyManager.getCurrentDisplayTrack();
+    if (currentTrack && currentTrack.name && currentTrack.name !== 'Slow Roads Radio') {
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText(`♫ ${currentTrack.name} • ${currentTrack.artist}`, 512, 452);
+    }
+
+    ctx.restore();
 
     this.gaugeTexture.needsUpdate = true;
   }

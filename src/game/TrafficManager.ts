@@ -175,10 +175,12 @@ export class TrafficManager {
         v.distance = playerDistance + forwardSpawnDist - 30;
       }
 
-      // Check for vehicle ahead in current lane (AI overtaking & braking logic)
-      let vehicleAhead: AITrafficVehicle | null = null;
+      // Check for vehicle or player ahead in current lane (AI overtaking & anti-crash braking logic)
       let minGap = 999;
+      let leadSpeed = v.targetSpeed;
+      let hasObstacleAhead = false;
 
+      // 1. Check AI vehicles ahead in same lane
       for (let j = 0; j < this.vehicles.length; j++) {
         if (i === j) continue;
         const other = this.vehicles[j];
@@ -186,19 +188,29 @@ export class TrafficManager {
           const gap = other.distance - v.distance;
           if (gap < minGap) {
             minGap = gap;
-            vehicleAhead = other;
+            leadSpeed = other.speed;
+            hasObstacleAhead = true;
           }
         }
       }
 
-      // Dynamic Overtaking logic:
-      // If blocked by slower car ahead within 28 meters
+      // 2. Check PLAYER ahead (prevent AI from rear-ending the player when player brakes or slows down!)
+      const playerLaneDist = playerDistance - v.distance;
+      const playerLaneOverlap = Math.abs(v.currentLaneOffset - playerLaneOffset) < 2.1;
+      if (playerLaneOverlap && playerLaneDist > 0 && playerLaneDist < minGap) {
+        minGap = playerLaneDist;
+        leadSpeed = playerSpeed;
+        hasObstacleAhead = true;
+      }
+
+      // 3. Smart Overtaking & Decisive Anti-Crash Braking
       let isBraking = false;
-      if (vehicleAhead && minGap < 30) {
-        if (v.laneChangeDirection === null) {
-          // Attempt lane change: check if left lane (or right lane) is clear
-          const canOvertakeLeft = v.lane < 3 && this.isLaneClear(v.lane + 1, v.distance);
-          const canOvertakeRight = v.lane > 0 && this.isLaneClear(v.lane - 1, v.distance);
+      if (hasObstacleAhead && minGap < 42) {
+        // Try to overtake if traveling faster than vehicle ahead and not already changing lanes
+        if (v.laneChangeDirection === null && v.speed > leadSpeed - 5) {
+          // Prefer overtaking on left (faster lane), fallback to right
+          const canOvertakeLeft = v.lane < 3 && this.isLaneClear(v.lane + 1, v.distance, playerDistance, playerLaneOffset);
+          const canOvertakeRight = v.lane > 0 && this.isLaneClear(v.lane - 1, v.distance, playerDistance, playerLaneOffset);
 
           if (canOvertakeLeft) {
             v.laneChangeDirection = 'left';
@@ -206,22 +218,38 @@ export class TrafficManager {
           } else if (canOvertakeRight) {
             v.laneChangeDirection = 'right';
             v.laneChangeProgress = 0;
-          } else {
-            // Cannot change lane: slow down to avoid rear-ending
-            v.speed = Math.max(30, vehicleAhead.speed - 3);
-            isBraking = true;
           }
         }
-      } else if (!vehicleAhead || minGap > 45) {
-        // Return to normal cruise speed
+
+        // Proactive following distance & braking to prevent rear-ending:
+        if (minGap < 36) {
+          isBraking = true;
+          if (minGap < 12) {
+            // Emergency stop / hard brake to guarantee no collision with player
+            v.speed = Math.max(0, Math.min(v.speed - delta * 80, leadSpeed * 0.8));
+          } else if (minGap < 22) {
+            // Strong deceleration to open up safety buffer
+            v.speed = Math.max(0, Math.min(v.speed - delta * 50, leadSpeed - 3));
+          } else {
+            // Smooth speed matching
+            v.speed = Math.max(0, THREE.MathUtils.lerp(v.speed, Math.min(v.speed, leadSpeed), delta * 6));
+          }
+
+          // If lead vehicle (e.g. player) has completely stopped, stop with a safe gap
+          if (leadSpeed < 2 && minGap < 9) {
+            v.speed = 0;
+          }
+        }
+      } else if (!hasObstacleAhead || minGap > 50) {
+        // Smoothly return to cruising speed
         if (v.speed < v.targetSpeed) {
-          v.speed += delta * 10;
+          v.speed = Math.min(v.targetSpeed, v.speed + delta * 15);
         }
       }
 
       // Execute lane change transition
       if (v.laneChangeDirection !== null) {
-        v.laneChangeProgress += delta * 0.45; // ~2.2s lane change
+        v.laneChangeProgress += delta * 0.55; // Crisp ~1.8s lane change
         const sourceOffset = HighwaySpline.getLaneOffset(v.lane);
         const targetLane = v.laneChangeDirection === 'left' ? v.lane + 1 : v.lane - 1;
         const targetOffset = HighwaySpline.getLaneOffset(targetLane);
@@ -298,14 +326,29 @@ export class TrafficManager {
     }
   }
 
-  private isLaneClear(targetLane: number, distance: number): boolean {
+  private isLaneClear(
+    targetLane: number,
+    distance: number,
+    playerDistance: number,
+    playerLaneOffset: number
+  ): boolean {
+    // Check other AI vehicles
     for (const other of this.vehicles) {
       if (other.lane === targetLane) {
-        if (Math.abs(other.distance - distance) < 22) {
+        if (Math.abs(other.distance - distance) < 24) {
           return false;
         }
       }
     }
+
+    // Check player vehicle
+    const targetOffset = HighwaySpline.getLaneOffset(targetLane);
+    const distToPlayer = Math.abs(playerDistance - distance);
+    const latToPlayer = Math.abs(playerLaneOffset - targetOffset);
+    if (distToPlayer < 26 && latToPlayer < 2.2) {
+      return false;
+    }
+
     return true;
   }
 }

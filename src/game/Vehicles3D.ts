@@ -320,193 +320,230 @@ export class Vehicles3D {
   } {
     const root = new THREE.Group();
 
-    // 1. Sculpted Main Dashboard Body
-    const dashBodyGeo = new THREE.BoxGeometry(1.9, 0.48, 0.75);
-    const dashBody = new THREE.Mesh(dashBodyGeo, this.dashPlastic);
-    dashBody.position.set(0, 0.22, 0.62);
-    root.add(dashBody);
+    // Slow Roads aesthetic materials (Matte dark slate, clean pearl white, dark pillar trims)
+    const srDashMat = new THREE.MeshStandardMaterial({ color: 0x2e3335, roughness: 0.88, metalness: 0.12 });
+    const srCowlMat = new THREE.MeshStandardMaterial({ color: 0x24282a, roughness: 0.85, metalness: 0.15 });
+    const srHoodMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.45 });
+    const srPillarMat = new THREE.MeshStandardMaterial({ color: 0x1f2324, roughness: 0.92 });
+    const srTrimMat = new THREE.MeshStandardMaterial({ color: 0x1c1f20, roughness: 0.9 });
+    const srWheelMat = new THREE.MeshStandardMaterial({ color: 0x25292a, roughness: 0.8, metalness: 0.18 });
 
-    // Soft-touch leather dashboard top pad
-    const dashPadGeo = new THREE.BoxGeometry(1.88, 0.06, 0.72);
-    const dashPad = new THREE.Mesh(dashPadGeo, this.darkLeather);
-    dashPad.position.set(0, 0.46, 0.62);
+    // 1. EXTERIOR CAR HOOD (Clearly visible through windshield in IMG_7411.png)
+    // Slopes forward from windshield cowl (z = 0.78) to front bumper (z = 2.45)
+    const hoodGroup = new THREE.Group();
+
+    // Main center hood plane (pearl white sports car finish)
+    const hoodCenterGeo = new THREE.BoxGeometry(1.64, 0.04, 1.72);
+    const hoodCenter = new THREE.Mesh(hoodCenterGeo, srHoodMat);
+    hoodCenter.position.set(0, 0.40, 1.62);
+    hoodCenter.rotation.x = 0.052; // Gentle aerodynamic slope down into the road
+    hoodGroup.add(hoodCenter);
+
+    // Left and Right raised fender shoulders (sports car hood contours framing road)
+    const fenderLGeo = new THREE.BoxGeometry(0.24, 0.08, 1.72);
+    const fenderL = new THREE.Mesh(fenderLGeo, srHoodMat);
+    fenderL.position.set(-0.84, 0.42, 1.62);
+    fenderL.rotation.x = 0.052;
+    fenderL.rotation.z = -0.06;
+    hoodGroup.add(fenderL);
+
+    const fenderR = fenderL.clone();
+    fenderR.position.x = 0.84;
+    fenderR.rotation.z = 0.06;
+    hoodGroup.add(fenderR);
+
+    // Windshield base cowl vent grille (black recessed strip)
+    const cowlGrille = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.03, 0.14), srTrimMat);
+    cowlGrille.position.set(0, 0.45, 0.80);
+    hoodGroup.add(cowlGrille);
+
+    root.add(hoodGroup);
+
+    // 2. SCULPTED SLOW ROADS DASHBOARD (Matte dark slate, clean minimalist profile)
+    // Main dashboard structure spanning across car
+    const mainDashGeo = new THREE.BoxGeometry(1.98, 0.44, 0.74);
+    const mainDash = new THREE.Mesh(mainDashGeo, srDashMat);
+    mainDash.position.set(0, 0.22, 0.62);
+    root.add(mainDash);
+
+    // Sculpted soft-touch dashboard top pad
+    const dashPadGeo = new THREE.BoxGeometry(1.96, 0.05, 0.72);
+    const dashPad = new THREE.Mesh(dashPadGeo, srDashMat);
+    dashPad.position.set(0, 0.44, 0.62);
     root.add(dashPad);
 
-    // Brushed aluminum horizontal dash accent line
-    const trimGeo = new THREE.BoxGeometry(1.85, 0.03, 0.03);
-    const trim = new THREE.Mesh(trimGeo, this.aluminumTrim);
-    trim.position.set(0, 0.28, 0.3);
-    root.add(trim);
+    // Subtle horizontal ambient seam line
+    const seamLine = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.015, 0.02), srTrimMat);
+    seamLine.position.set(0, 0.28, 0.28);
+    root.add(seamLine);
 
-    // AC Vents with chrome louvers
-    [-0.75, -0.15, 0.45, 0.8].forEach((x) => {
-      const vent = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.02), this.chromeMaterial);
-      vent.position.set(x, 0.32, 0.3);
-      root.add(vent);
-    });
+    // 3. DRIVER'S INSTRUMENT BINNACLE COWL (Arching over gauge display at x = 0.38)
+    // In IMG_7411.png, the cowl rises gracefully directly in front of the driver
+    const driverCowlGeo = new THREE.BoxGeometry(0.56, 0.24, 0.36);
+    const driverCowl = new THREE.Mesh(driverCowlGeo, srCowlMat);
+    driverCowl.position.set(0.38, 0.46, 0.68);
+    root.add(driverCowl);
 
-    // 2. Instrument Cluster Hood (Cowl) behind steering wheel on left side (x = -0.42)
-    const cowlGeo = new THREE.BoxGeometry(0.64, 0.32, 0.4);
-    const cowl = new THREE.Mesh(cowlGeo, this.darkLeather);
-    cowl.position.set(-0.42, 0.48, 0.58);
-    root.add(cowl);
+    // Curved cowl visor brow framing top of display
+    const cowlBrowGeo = new THREE.BoxGeometry(0.54, 0.035, 0.18);
+    const cowlBrow = new THREE.Mesh(cowlBrowGeo, srCowlMat);
+    cowlBrow.position.set(0.38, 0.55, 0.58);
+    cowlBrow.rotation.x = -0.14;
+    root.add(cowlBrow);
 
-    // --- 3. DYNAMIC IN-DASH INSTRUMENT GAUGE SCREEN ---
-    // Mounted directly behind the steering wheel in the instrument binnacle
-    const gaugeScreenGeo = new THREE.PlaneGeometry(0.52, 0.26);
+    // 4. DYNAMIC SLOW ROADS INSTRUMENT GAUGE SCREEN
+    // Centered directly inside driver's cowl behind steering wheel
+    const gaugeScreenGeo = new THREE.PlaneGeometry(0.46, 0.23);
     const gaugeScreen = new THREE.Mesh(gaugeScreenGeo, cockpitScreens.gaugeMaterial);
-    gaugeScreen.position.set(-0.42, 0.44, 0.52);
-    gaugeScreen.rotation.x = -0.08; // slight upward tilt toward driver's eye
+    gaugeScreen.position.set(0.38, 0.43, 0.68);
+    gaugeScreen.rotation.x = -0.06; // tilted toward driver's eye
     root.add(gaugeScreen);
 
-    // --- 4. DYNAMIC IN-DASH INFOTAINMENT SCREEN (SPOTIFY) ---
-    // Mounted to the right of the steering wheel on the center stack
-    // Tilted toward the driver (rotation.y = 0.24)
-    const infoHousingGeo = new THREE.BoxGeometry(0.58, 0.35, 0.06);
-    const infoHousing = new THREE.Mesh(infoHousingGeo, this.dashPlastic);
-    infoHousing.position.set(0.15, 0.38, 0.54);
-    infoHousing.rotation.y = 0.24;
-    infoHousing.rotation.x = -0.06;
-    root.add(infoHousing);
-
-    const infoScreenGeo = new THREE.PlaneGeometry(0.54, 0.32);
-    const infoScreen = new THREE.Mesh(infoScreenGeo, cockpitScreens.infotainmentMaterial);
-    infoScreen.position.set(0.15, 0.38, 0.51);
-    infoScreen.rotation.y = 0.24;
-    infoScreen.rotation.x = -0.06;
-    root.add(infoScreen);
-
-    // 5. Center Console Tunnel (Extending between seats)
-    const consoleTunnelGeo = new THREE.BoxGeometry(0.48, 0.45, 0.9);
-    const consoleTunnel = new THREE.Mesh(consoleTunnelGeo, this.darkLeather);
-    consoleTunnel.position.set(0, -0.05, 0.2);
-    root.add(consoleTunnel);
-
-    // Automatic Gear Shifter Lever
-    const shifterBase = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.24), this.aluminumTrim);
-    shifterBase.position.set(0, 0.18, 0.22);
-    root.add(shifterBase);
-
-    const shifterStick = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.14, 12), this.chromeMaterial);
-    shifterStick.position.set(0, 0.25, 0.22);
-    root.add(shifterStick);
-
-    const shifterKnob = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 12), this.darkLeather);
-    shifterKnob.position.set(0, 0.32, 0.22);
-    root.add(shifterKnob);
-
-    // Start / Stop Engine Glowing Button
-    const startBtn = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.01, 16), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
-    startBtn.rotateX(Math.PI / 2);
-    startBtn.position.set(-0.12, 0.25, 0.3);
-    root.add(startBtn);
-
-    // Dual Cup Holders
-    [-0.08, 0.08].forEach((x) => {
-      const holder = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.06, 16), this.dashPlastic);
-      holder.position.set(x, 0.16, 0.02);
-      root.add(holder);
-    });
-
-    // --- 6. 3D ERGONOMIC SPORT STEERING WHEEL ---
-    // Centered directly in front of the driver at x = -0.42, y = 0.38, z = 0.32
+    // 5. SLOW ROADS 3-SPOKE STEERING WHEEL WITH "AUTODRIVE" HUB (IMG_7411.png)
+    // Placed 54cm in front of driver eye (x = 0.38, y = 0.35, z = 0.42)
     const steeringWheel = new THREE.Group();
-    steeringWheel.position.set(-0.42, 0.38, 0.32);
-    steeringWheel.rotation.x = 0.22; // Natural tilted steering column angle
+    steeringWheel.position.set(0.38, 0.35, 0.42);
+    steeringWheel.rotation.x = 0.16; // Natural steering column rake angle
 
-    // Steering column sleeve
-    const columnGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.35, 16);
+    // Steering column shaft extending into dashboard
+    const columnGeo = new THREE.CylinderGeometry(0.04, 0.046, 0.36, 16);
     columnGeo.rotateX(Math.PI / 2);
-    const column = new THREE.Mesh(columnGeo, this.dashPlastic);
-    column.position.set(0, 0, 0.16);
+    const column = new THREE.Mesh(columnGeo, srTrimMat);
+    column.position.set(0, 0, 0.18);
     steeringWheel.add(column);
 
-    // Outer leather rim (Flat-bottom sport wheel)
-    const rimGeo = new THREE.TorusGeometry(0.21, 0.025, 16, 40);
-    const rim = new THREE.Mesh(rimGeo, this.darkLeather);
+    // Outer ergonomic steering wheel rim (Refined thin tube with open upper arch framing the cluster)
+    const rimGeo = new THREE.TorusGeometry(0.185, 0.017, 16, 48);
+    const rim = new THREE.Mesh(rimGeo, srWheelMat);
     steeringWheel.add(rim);
 
-    // Top 12-o'clock centering ring marker (Racing Blue)
-    const topMarker = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.005, 8, 16), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
-    topMarker.position.set(0, 0.21, 0);
-    topMarker.rotateY(Math.PI / 2);
-    steeringWheel.add(topMarker);
-
-    // Center horn hub with polished emblem
-    const hubGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.035, 20);
-    hubGeo.rotateX(Math.PI / 2);
-    const hub = new THREE.Mesh(hubGeo, this.darkLeather);
+    // Center Hub Boss with "AUTODRIVE" Faceplate (matching IMG_7411.png)
+    const hubGeo = new THREE.BoxGeometry(0.13, 0.075, 0.032);
+    const hub = new THREE.Mesh(hubGeo, srCowlMat);
     steeringWheel.add(hub);
 
-    const badge = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), this.chromeMaterial);
-    badge.position.set(0, 0, 0.02);
-    steeringWheel.add(badge);
+    // Dynamic "AUTODRIVE" text canvas faceplate
+    const hubCanvas = document.createElement('canvas');
+    hubCanvas.width = 256;
+    hubCanvas.height = 128;
+    const hubCtx = hubCanvas.getContext('2d')!;
+    hubCtx.fillStyle = '#222527';
+    hubCtx.fillRect(0, 0, 256, 128);
+    hubCtx.strokeStyle = '#323739';
+    hubCtx.lineWidth = 4;
+    hubCtx.strokeRect(4, 4, 248, 120);
+    hubCtx.font = 'bold 30px sans-serif';
+    hubCtx.fillStyle = '#cbd5e1';
+    hubCtx.textAlign = 'center';
+    hubCtx.textBaseline = 'middle';
+    hubCtx.letterSpacing = '3px';
+    hubCtx.fillText('AUTODRIVE', 128, 64);
 
-    // Left and right horizontal spokes with control button pods
-    const spokeHGeo = new THREE.BoxGeometry(0.38, 0.045, 0.02);
-    const spokeH = new THREE.Mesh(spokeHGeo, this.aluminumTrim);
-    steeringWheel.add(spokeH);
+    const hubTexture = new THREE.CanvasTexture(hubCanvas);
+    const hubFaceMat = new THREE.MeshBasicMaterial({ map: hubTexture });
+    const hubFace = new THREE.Mesh(new THREE.PlaneGeometry(0.125, 0.068), hubFaceMat);
+    hubFace.position.set(0, 0, 0.018);
+    steeringWheel.add(hubFace);
+
+    // Left and right horizontal spokes
+    const spokeL = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.028, 0.016), srWheelMat);
+    spokeL.position.set(-0.10, 0, 0);
+    const spokeR = spokeL.clone();
+    spokeR.position.x = 0.10;
+    steeringWheel.add(spokeL, spokeR);
 
     // Lower vertical spoke
-    const spokeVGeo = new THREE.BoxGeometry(0.045, 0.18, 0.02);
-    const spokeV = new THREE.Mesh(spokeVGeo, this.aluminumTrim);
-    spokeV.position.y = -0.09;
-    steeringWheel.add(spokeV);
-
-    // Brushed aluminum paddle shifters mounted behind wheel
-    [-0.18, 0.18].forEach((x, idx) => {
-      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.01), this.aluminumTrim);
-      paddle.position.set(x, 0.06, -0.03);
-      steeringWheel.add(paddle);
-    });
+    const spokeBottom = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.10, 0.016), srWheelMat);
+    spokeBottom.position.set(0, -0.095, 0);
+    steeringWheel.add(spokeBottom);
 
     root.add(steeringWheel);
 
-    // 7. Windshield, A-Pillars & Mirrors
-    const aPillarMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 });
-    const pillarL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.08), aPillarMat);
-    pillarL.position.set(-0.88, 0.55, 0.38);
+    // 6. IN-DASH SPOTIFY INFOTAINMENT DISPLAY (Mounted in lower center dash)
+    // Sits in lower center stack angled toward driver so it does NOT block the pristine windshield view
+    const infoHousing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.27, 0.04), srTrimMat);
+    infoHousing.position.set(-0.06, 0.18, 0.54);
+    infoHousing.rotation.x = -0.42; // Tilted upward toward driver
+    infoHousing.rotation.y = 0.12;  // Angled gently toward driver seat
+    root.add(infoHousing);
+
+    const infoScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.25), cockpitScreens.infotainmentMaterial);
+    infoScreen.position.set(-0.06, 0.18, 0.52);
+    infoScreen.rotation.x = -0.42;
+    infoScreen.rotation.y = 0.12;
+    root.add(infoScreen);
+
+    // 7. WINDSHIELD, A-PILLARS & ROOF HEADER (Exact framing from IMG_7411.png)
+    // Near Right A-Pillar (driver's side in Slow Roads layout)
+    const pillarRGeo = new THREE.BoxGeometry(0.065, 1.18, 0.065);
+    const pillarR = new THREE.Mesh(pillarRGeo, srPillarMat);
+    pillarR.position.set(0.86, 0.66, 0.25);
+    pillarR.rotation.z = 0.26;
+    pillarR.rotation.x = -0.42;
+
+    // Right side window frame & sill visible through right window
+    const sillR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.95), srPillarMat);
+    sillR.position.set(0.96, 0.44, 0.15);
+    root.add(pillarR, sillR);
+
+    // Right side triangular quarter-glass
+    const sideGlassMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.04,
+      roughness: 0.02,
+      transmission: 0.98,
+      depthWrite: false,
+    });
+    const sideGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.58), sideGlassMat);
+    sideGlass.position.set(0.96, 0.62, 0.18);
+    sideGlass.rotation.y = -Math.PI / 2;
+    root.add(sideGlass);
+
+    // Far Left A-Pillar
+    const pillarL = new THREE.Mesh(pillarRGeo, srPillarMat);
+    pillarL.position.set(-0.92, 0.66, 0.32);
     pillarL.rotation.z = -0.26;
     pillarL.rotation.x = -0.42;
+    root.add(pillarL);
 
-    const pillarR = pillarL.clone();
-    pillarR.position.x = 0.88;
-    pillarR.rotation.z = 0.26;
-    root.add(pillarL, pillarR);
+    // Top Roof Header / Headliner bar across top of windshield
+    const roofHeaderGeo = new THREE.BoxGeometry(1.92, 0.08, 0.12);
+    const roofHeader = new THREE.Mesh(roofHeaderGeo, srPillarMat);
+    roofHeader.position.set(0, 0.98, 0.12);
+    root.add(roofHeader);
 
-    // Windshield Glass with dark top sun-strip
-    const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.0), this.glassMaterial);
-    glass.position.set(0, 0.55, 0.55);
-    glass.rotation.x = -0.42;
-    root.add(glass);
+    // Crystal clear windshield glass
+    const windshieldMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.02,
+      roughness: 0.02,
+      transmission: 0.99,
+      depthWrite: false,
+    });
+    const windshield = new THREE.Mesh(new THREE.PlaneGeometry(1.92, 0.94), windshieldMat);
+    windshield.position.set(0, 0.64, 0.48);
+    windshield.rotation.x = -0.42;
+    root.add(windshield);
 
-    // Rearview Mirror with wide frame
-    const mirrorHousing = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.11, 0.04), this.dashPlastic);
-    mirrorHousing.position.set(0, 0.85, 0.38);
-    const mirrorReflect = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.09), this.chromeMaterial);
-    mirrorReflect.position.set(0, 0.85, 0.36);
-    root.add(mirrorHousing, mirrorReflect);
-
-    // Driver Side Exterior Mirror visible through left window
-    const sideMirrorL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.1, 0.08), this.dashPlastic);
-    sideMirrorL.position.set(-1.08, 0.48, 0.25);
-    const sideMirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.08), this.chromeMaterial);
-    sideMirrorGlass.position.set(-1.08, 0.48, 0.21);
-    sideMirrorGlass.rotation.y = 0.2;
-    root.add(sideMirrorL, sideMirrorGlass);
-
-    // 8. Windshield Wipers
-    const wiperMat = new THREE.MeshStandardMaterial({ color: 0x09090b });
-    const wiperGeo = new THREE.BoxGeometry(0.02, 0.52, 0.02);
+    // Minimalist windshield wiper blades parked at cowl base
+    const wiperMat = new THREE.MeshStandardMaterial({ color: 0x111314, roughness: 0.9 });
+    const wiperGeo = new THREE.BoxGeometry(0.018, 0.48, 0.015);
     const wiperLeft = new THREE.Mesh(wiperGeo, wiperMat);
-    wiperLeft.position.set(-0.35, 0.38, 0.65);
-    wiperLeft.rotation.z = -Math.PI / 3;
+    wiperLeft.position.set(-0.25, 0.44, 0.70);
+    wiperLeft.rotation.z = -Math.PI / 2.8;
 
     const wiperRight = wiperLeft.clone();
-    wiperRight.position.x = 0.35;
+    wiperRight.position.set(0.38, 0.44, 0.70);
     root.add(wiperLeft, wiperRight);
 
-    return { root, steeringWheel, wiperLeft, wiperRight, rearMirror: mirrorHousing };
+    // Dummy rear mirror for return interface (hidden/minimal so view is unobstructed)
+    const dummyMirror = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01), srTrimMat);
+    dummyMirror.visible = false;
+    root.add(dummyMirror);
+
+    return { root, steeringWheel, wiperLeft, wiperRight, rearMirror: dummyMirror };
   }
 
   /**

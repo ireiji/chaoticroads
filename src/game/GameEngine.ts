@@ -829,8 +829,8 @@ export class GameEngine {
     // 1. Process Player Driving Inputs
     const isW = !!(this.keys['KeyW'] || this.keys['ArrowUp']);
     const isS = !!(this.keys['KeyS'] || this.keys['ArrowDown']);
-    const isA = !!this.keys['KeyA'];
-    const isD = !!this.keys['KeyD'];
+    const isA = !!(this.keys['KeyA'] || this.keys['ArrowLeft']);
+    const isD = !!(this.keys['KeyD'] || this.keys['ArrowRight']);
     const isSpace = !!this.keys['Space'];
     const isShift = !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
 
@@ -872,19 +872,19 @@ export class GameEngine {
     // At low speeds (20 mph), steering is responsive; at 120 mph, steering is smooth and stable
     const speedSensitivity = Math.max(0.28, Math.min(1.0, 48 / Math.max(15, this.physics.speed)));
     let targetSteer = 0;
-    if (isA) targetSteer += 1.0; // steer left toward lower laneOffset
-    if (isD) targetSteer -= 1.0; // steer right toward higher laneOffset
+    if (isA) targetSteer -= 1.0; // A / Left arrow steers LEFT
+    if (isD) targetSteer += 1.0; // D / Right arrow steers RIGHT
 
     // Dynamic steering rack turning with natural inertia
     const steerSpeed = 6.2;
     this.physics.steerAngle = THREE.MathUtils.lerp(this.physics.steerAngle, targetSteer * speedSensitivity, delta * steerSpeed);
 
     // 3D Steering wheel visual rotation in driver's hands (up to 240 degrees)
+    // Turning left rotates the top of the wheel to the left
     const targetWheelAngle = this.physics.steerAngle * Math.PI * 1.35;
     this.physics.steeringWheelAngle = THREE.MathUtils.lerp(this.physics.steeringWheelAngle, targetWheelAngle, delta * 14);
 
     // Physical Lateral Force & Tire Cornering Grip:
-    // Tires develop lateral acceleration proportional to steer angle and forward speed
     const maxLatVel = Math.min(speedMps * 0.4, 15.0);
     const targetLatVel = this.physics.steerAngle * maxLatVel;
     this.physics.lateralVelocity = THREE.MathUtils.lerp(this.physics.lateralVelocity, targetLatVel, delta * 7.5);
@@ -902,10 +902,9 @@ export class GameEngine {
 
     // Realistic Chassis Suspension Roll & Pitch:
     // Centrifugal force rolls the car chassis outward into the turn
-    // In a motorcycle, counter-steering leans the bike dramatically inward into the turn
     const targetRoll = isCar
-      ? -this.physics.lateralVelocity * 0.038
-      : this.physics.lateralVelocity * 0.16 * Math.min(1.0, speedMps / 12);
+      ? this.physics.lateralVelocity * 0.038
+      : -this.physics.lateralVelocity * 0.16 * Math.min(1.0, speedMps / 12);
     this.physics.roll = THREE.MathUtils.lerp(this.physics.roll, targetRoll, delta * 10);
 
     // Chassis Pitch (Squat on acceleration, dive on braking)
@@ -1080,26 +1079,27 @@ export class GameEngine {
     }
 
     if (this.cameraView === 'cockpit') {
-      // Driver's POV (Eyes seated directly behind steering wheel & dashboard)
-      // For car: x = -0.42 (driver seat), y = 0.58 (eye height), z = 0.05
-      // Directly ahead is the steering wheel, behind it the meters, to the right Spotify!
+      // Driver's POV matching Slow Roads (IMG_7411.png)
+      // Eyepoint 54cm behind steering wheel at driver seat (x = 0.38, y = 0.64, z = -0.12)
       const eyeOffset = isCar
-        ? new THREE.Vector3(-0.42, 0.58, 0.04)
+        ? new THREE.Vector3(0.38, 0.64, -0.12)
         : new THREE.Vector3(0, 0.82, -0.05);
 
       eyeOffset.applyQuaternion(vehicleQuat);
       this.camera.position.copy(playerPos).add(eyeOffset);
 
-      // Look forward along road heading
-      const lookTarget = playerPos.clone().add(tangent.clone().multiplyScalar(45));
-      lookTarget.y += isCar ? 0.58 : 0.82;
-      this.camera.lookAt(lookTarget);
+      // Smooth vehicle-relative camera orientation via Quaternions
+      // Inherits heading, pitch, and roll cleanly without Euler gimbal lock
+      // Slight downward pitch angle (-0.075 rad / -4.3 deg) frames the dashboard & wheel in lower 30%,
+      // pearl white hood leading forward in the center, and road & horizon in upper 70%
+      const lookPitch = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        isCar ? -0.075 : -0.02
+      );
+      this.camera.quaternion.copy(vehicleQuat).multiply(lookPitch);
 
-      // Match vehicle roll/bank
-      this.camera.rotation.z += this.physics.roll * (isCar ? 0.3 : 0.85);
-
-      // Dynamic FOV effect during Nitro Boost
-      const targetFov = this.physics.isBoosting ? 78 : 65;
+      // Wide panoramic Slow Roads FOV (72 deg standard, 82 deg on nitro boost)
+      const targetFov = this.physics.isBoosting ? 82 : 72;
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, delta * 5);
       this.camera.updateProjectionMatrix();
     } else {
