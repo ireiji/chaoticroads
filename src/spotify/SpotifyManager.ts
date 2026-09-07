@@ -156,13 +156,21 @@ export class SpotifyManager {
       this.isSpotifyConnected = true;
     }
 
-    // Check if redirected with hash #access_token=...
+    // Check if redirected with authorization code in query params: ?code=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      this.exchangeCodeForToken(code).then(() => {
+        window.history.replaceState(null, '', window.location.pathname);
+      });
+    }
+
+    // Check if redirected with hash #access_token=... (implicit fallback)
     if (window.location.hash.includes('access_token')) {
       const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
       const token = hashParams.get('access_token');
       if (token) {
         this.setAccessToken(token);
-        // Clear hash from URL cleanly
         window.history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -173,15 +181,93 @@ export class SpotifyManager {
     }
   }
 
-  public getAuthUrl(): string {
+  /**
+   * Generates PKCE code verifier (64 characters random string)
+   */
+  private generateCodeVerifier(length: number = 64): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    let result = '';
+    const array = new Uint8Array(length);
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < length; i++) {
+      result += chars[array[i] % chars.length];
+    }
+    return result;
+  }
+
+  /**
+   * Generates SHA-256 PKCE code challenge from verifier
+   */
+  private async generateCodeChallenge(verifier: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    const bytes = new Uint8Array(digest);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  /**
+   * Returns Spotify PKCE OAuth Authorization URL
+   */
+  public async getAuthUrl(): Promise<string> {
+    const verifier = this.generateCodeVerifier();
+    localStorage.setItem('chaotic_roads_spotify_verifier', verifier);
+    const challenge = await this.generateCodeChallenge(verifier);
+
     const params = new URLSearchParams({
       client_id: SPOTIFY_CONFIG.clientId,
-      response_type: 'token',
+      response_type: 'code',
       redirect_uri: SPOTIFY_CONFIG.redirectUri,
       scope: SPOTIFY_CONFIG.scopes.join(' '),
+      code_challenge_method: 'S256',
+      code_challenge: challenge,
       show_dialog: 'true',
     });
     return `https://accounts.spotify.com/authorize?${params.toString()}`;
+  }
+
+  /**
+   * Exchanges an authorization code for a Spotify Bearer Access Token
+   */
+  public async exchangeCodeForToken(code: string): Promise<{ success: boolean; error?: string }> {
+    const verifier = localStorage.getItem('chaotic_roads_spotify_verifier') || '';
+    try {
+      const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: SPOTIFY_CONFIG.clientId,
+          grant_type: 'authorization_code',
+          code: code.trim(),
+          redirect_uri: SPOTIFY_CONFIG.redirectUri,
+          code_verifier: verifier,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.access_token) {
+        this.setAccessToken(data.access_token);
+        if (data.refresh_token) {
+          localStorage.setItem('chaotic_roads_spotify_refresh', data.refresh_token);
+        }
+        return { success: true };
+      } else {
+        const errorMsg = data.error_description || data.error || 'Failed to exchange authorization code';
+        return { success: false, error: errorMsg };
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Network error exchanging Spotify code';
+      return { success: false, error: errorMsg };
+    }
   }
 
   public setAccessToken(token: string) {

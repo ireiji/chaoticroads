@@ -8,30 +8,30 @@ import { VehicleType } from '../types';
 export class Vehicles3D {
   // Shared materials for performance
   public static tireMaterial = new THREE.MeshStandardMaterial({
-    color: 0x18181b,
-    roughness: 0.9,
-    metalness: 0.1,
+    color: 0x27272a,
+    roughness: 0.85,
+    metalness: 0.05,
   });
 
   public static rimMaterial = new THREE.MeshStandardMaterial({
-    color: 0xd4d4d8,
-    roughness: 0.3,
-    metalness: 0.85,
+    color: 0xe4e4e7,
+    roughness: 0.25,
+    metalness: 0.45,
   });
 
-  public static glassMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x0f172a,
+  public static glassMaterial = new THREE.MeshStandardMaterial({
+    color: 0xbae6fd,
     transparent: true,
-    opacity: 0.45,
-    roughness: 0.1,
-    metalness: 0.9,
-    transmission: 0.8,
+    opacity: 0.25,
+    roughness: 0.05,
+    metalness: 0.05,
+    depthWrite: false,
   });
 
   public static chromeMaterial = new THREE.MeshStandardMaterial({
     color: 0xf4f4f5,
-    roughness: 0.15,
-    metalness: 0.95,
+    roughness: 0.2,
+    metalness: 0.45,
   });
 
   public static headlightOnMaterial = new THREE.MeshBasicMaterial({
@@ -78,8 +78,8 @@ export class Vehicles3D {
 
     const carPaintMaterial = new THREE.MeshStandardMaterial({
       color: 0x0284c7, // Radiant cobalt blue
-      roughness: 0.25,
-      metalness: 0.75,
+      roughness: 0.35,
+      metalness: 0.2,
     });
 
     const trimMaterial = new THREE.MeshStandardMaterial({
@@ -350,14 +350,14 @@ export class Vehicles3D {
 
     const motoPaintMat = new THREE.MeshStandardMaterial({
       color: 0xef4444, // Vibrant racing red
-      roughness: 0.2,
-      metalness: 0.8,
+      roughness: 0.35,
+      metalness: 0.2,
     });
 
     const engineMat = new THREE.MeshStandardMaterial({
-      color: 0x27272a,
+      color: 0x3f3f46,
       roughness: 0.5,
-      metalness: 0.7,
+      metalness: 0.35,
     });
 
     // Frame / Fuel tank
@@ -514,7 +514,7 @@ export class Vehicles3D {
     const bodyMat = new THREE.MeshStandardMaterial({
       color: colorHex,
       roughness: 0.35,
-      metalness: 0.6,
+      metalness: 0.2,
     });
 
     if (type === 'truck') {

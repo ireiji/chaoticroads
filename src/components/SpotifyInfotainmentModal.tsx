@@ -16,21 +16,72 @@ interface Props {
 export const SpotifyInfotainmentModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [tokenInput, setTokenInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const isConnected = spotifyManager.isConnected();
   const currentStation = spotifyManager.getStation();
 
   if (!isOpen) return null;
 
-  const handleOpenAuth = () => {
-    const authUrl = spotifyManager.getAuthUrl();
-    window.open(authUrl, '_blank', 'width=550,height=750');
+  const handleOpenAuth = async () => {
+    try {
+      setIsProcessing(true);
+      setStatusMessage({ text: 'Opening Spotify authorization window...', type: 'info' });
+      const authUrl = await spotifyManager.getAuthUrl();
+      window.open(authUrl, '_blank', 'width=550,height=750');
+      setStatusMessage({
+        text: 'Spotify window opened. After approving, Spotify will redirect to your Redirect URI with "?code=...". Paste that URL or code below, or paste your Bearer token directly!',
+        type: 'info',
+      });
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to generate Spotify authorization URL';
+      setStatusMessage({ text: errorMsg, type: 'error' });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleApplyToken = () => {
-    if (tokenInput.trim()) {
-      spotifyManager.setAccessToken(tokenInput.trim());
+  const handleApplyTokenOrCode = async () => {
+    const input = tokenInput.trim();
+    if (!input) return;
+
+    setIsProcessing(true);
+    setStatusMessage(null);
+
+    // Check if input is a redirected URL with ?code= or contains code parameter
+    let extractedCode: string | null = null;
+    if (input.includes('code=')) {
+      try {
+        const urlPart = input.includes('?') ? input.split('?')[1] : input;
+        const searchParams = new URLSearchParams(urlPart);
+        extractedCode = searchParams.get('code');
+      } catch {
+        extractedCode = null;
+      }
+    } else if (input.length > 20 && !input.startsWith('BQ') && !input.includes(' ')) {
+      // Possible raw code string
+      extractedCode = input;
+    }
+
+    if (extractedCode) {
+      setStatusMessage({ text: 'Exchanging authorization code with Spotify...', type: 'info' });
+      const result = await spotifyManager.exchangeCodeForToken(extractedCode);
+      if (result.success) {
+        setStatusMessage({ text: 'Successfully connected to Spotify!', type: 'success' });
+        setTokenInput('');
+      } else {
+        setStatusMessage({
+          text: `Code exchange failed: ${result.error}. Try pasting your Spotify Bearer token directly.`,
+          type: 'error',
+        });
+      }
+    } else {
+      // Treat as direct Spotify access/bearer token
+      spotifyManager.setAccessToken(input);
+      setStatusMessage({ text: 'Token applied! Checking Spotify connection...', type: 'success' });
       setTokenInput('');
     }
+    setIsProcessing(false);
   };
 
   const handleCopyUri = () => {
@@ -112,34 +163,57 @@ export const SpotifyInfotainmentModal: React.FC<Props> = ({ isOpen, onClose }) =
           <div className="flex gap-2">
             <button
               onClick={handleOpenAuth}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-98"
+              disabled={isProcessing}
+              className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-98"
             >
               <ExternalLink className="w-4 h-4" />
-              Authorize with Spotify
+              {isProcessing ? 'Connecting...' : 'Authorize with Spotify (PKCE)'}
             </button>
           </div>
 
-          {/* Manual Token Paste */}
+          {/* Status Message Notification */}
+          {statusMessage && (
+            <div
+              className={`mt-3 p-2.5 rounded-lg text-xs leading-relaxed border ${
+                statusMessage.type === 'error'
+                  ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                  : statusMessage.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+              }`}
+            >
+              {statusMessage.text}
+            </div>
+          )}
+
+          {/* Manual Token or Redirect URL Paste */}
           <div className="mt-3 pt-3 border-t border-zinc-800">
             <label className="text-[11px] font-mono text-zinc-400 mb-1.5 flex items-center gap-1">
               <Key className="w-3 h-3 text-zinc-500" />
-              Or paste Spotify Access Token directly:
+              Paste Redirected Spotify URL, Code, or Bearer Token:
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="BQB... (Spotify bearer token)"
+                placeholder="https://ireiji.github.io/chaoticroads?code=... OR BQB..."
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleApplyTokenOrCode();
+                }}
                 className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500 font-mono"
               />
               <button
-                onClick={handleApplyToken}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs px-3 py-1.5 rounded-lg transition-colors font-medium"
+                onClick={handleApplyTokenOrCode}
+                disabled={isProcessing}
+                className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg transition-colors font-medium"
               >
                 Connect
               </button>
             </div>
+            <p className="text-[10px] text-zinc-500 mt-1.5">
+              Supports both authorization code PKCE exchange and direct Spotify Web API bearer tokens.
+            </p>
           </div>
         </div>
 

@@ -18,12 +18,14 @@ export class GameEngine {
 
   // Lighting
   private ambientLight: THREE.AmbientLight;
+  private hemiLight: THREE.HemisphereLight;
   private sunLight: THREE.DirectionalLight;
   private streetLightsGroup: THREE.Group;
 
   // Road chunks
   private roadGroup: THREE.Group;
   private roadMesh: THREE.Mesh | null = null;
+  private terrainMesh: THREE.Mesh | null = null;
   private roadMarkingsMesh: THREE.Mesh | null = null;
   private guardrailsMesh: THREE.Mesh | null = null;
   private sceneryGroup: THREE.Group;
@@ -46,9 +48,9 @@ export class GameEngine {
   private vehicleType: VehicleType = 'car';
   private cameraView: CameraView = 'cockpit';
   private weather: WeatherType = 'clear';
-  private timeOfDay: TimeOfDay = 'sunset';
+  private timeOfDay: TimeOfDay = 'day';
   private autoTimeCycle: boolean = false;
-  private timeCycleProgress: number = 0.65; // sunset
+  private timeCycleProgress: number = 0.5; // midday
 
   public physics: VehiclePhysicsState = {
     speed: 0,
@@ -99,15 +101,15 @@ export class GameEngine {
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1e1b4b);
-    this.scene.fog = new THREE.FogExp2(0x1e1b4b, 0.0035);
+    this.scene.background = new THREE.Color(0x60a5fa);
+    this.scene.fog = new THREE.FogExp2(0xbae6fd, 0.0018);
 
     // 2. Camera setup
     this.camera = new THREE.PerspectiveCamera(
       65,
       container.clientWidth / container.clientHeight,
       0.1,
-      1000
+      1200
     );
 
     // 3. Renderer setup
@@ -121,25 +123,29 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.15;
     container.appendChild(this.renderer.domElement);
 
     // 4. Lighting setup
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     this.scene.add(this.ambientLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xffedd5, 1.4);
+    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.8);
+    this.scene.add(this.hemiLight);
+
+    this.sunLight = new THREE.DirectionalLight(0xffedd5, 1.6);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 2048;
     this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
-    this.sunLight.shadow.camera.far = 180;
-    const d = 40;
+    this.sunLight.shadow.camera.far = 220;
+    const d = 50;
     this.sunLight.shadow.camera.left = -d;
     this.sunLight.shadow.camera.right = d;
     this.sunLight.shadow.camera.top = d;
     this.sunLight.shadow.camera.bottom = -d;
     this.scene.add(this.sunLight);
+    this.scene.add(this.sunLight.target);
 
     // Street lights group
     this.streetLightsGroup = new THREE.Group();
@@ -300,53 +306,57 @@ export class GameEngine {
   }
 
   private updateEnvironmentLighting() {
-    const times: Record<TimeOfDay, { sky: number; fog: number; sun: number; intensity: number; ambient: number; sunPos: [number, number, number] }> = {
+    const times: Record<TimeOfDay, { sky: number; fog: number; sun: number; intensity: number; ambient: number; hemi: number; sunPos: [number, number, number] }> = {
       dawn: {
-        sky: 0x9a3412,
-        fog: 0xc2410c,
-        sun: 0xfdba74,
-        intensity: 1.1,
-        ambient: 0.45,
-        sunPos: [80, 15, 100],
+        sky: 0xfb7185, // Morning rose
+        fog: 0xfecdd3, // Soft sunrise mist
+        sun: 0xfde047, // Golden yellow
+        intensity: 1.4,
+        ambient: 0.55,
+        hemi: 0.65,
+        sunPos: [80, 25, 100],
       },
       day: {
-        sky: 0x38bdf8,
-        fog: 0xbae6fd,
-        sun: 0xffedd5,
-        intensity: 1.6,
-        ambient: 0.65,
-        sunPos: [40, 80, 50],
+        sky: 0x60a5fa, // Crisp blue sky
+        fog: 0xbae6fd, // Gentle horizon haze
+        sun: 0xffedd5, // Bright warm sun
+        intensity: 1.7,
+        ambient: 0.7,
+        hemi: 0.85,
+        sunPos: [60, 90, 80],
       },
       sunset: {
-        sky: 0x4c1d95,
-        fog: 0x831843,
-        sun: 0xf97316,
-        intensity: 1.3,
-        ambient: 0.4,
-        sunPos: [-70, 12, 120],
+        sky: 0xf97316, // Rich golden orange
+        fog: 0xfed7aa, // Soft golden haze
+        sun: 0xfbbf24, // Warm amber sunset
+        intensity: 1.4,
+        ambient: 0.6,
+        hemi: 0.7,
+        sunPos: [-80, 25, 120],
       },
       night: {
-        sky: 0x030712,
-        fog: 0x09090b,
-        sun: 0x38bdf8,
-        intensity: 0.15,
-        ambient: 0.18,
-        sunPos: [20, 50, -20],
+        sky: 0x090d16, // Midnight blue with moon
+        fog: 0x0f172a,
+        sun: 0x93c5fd, // Cool moonlight
+        intensity: 0.5,
+        ambient: 0.35,
+        hemi: 0.4,
+        sunPos: [20, 60, -20],
       },
     };
 
     const cfg = times[this.timeOfDay];
     let skyColor = cfg.sky;
-    let fogDensity = 0.003;
+    let fogDensity = 0.0018;
 
     if (this.weather === 'foggy') {
-      fogDensity = 0.016;
+      fogDensity = 0.012;
       skyColor = 0x64748b;
     } else if (this.weather === 'rain') {
-      fogDensity = 0.007;
-      skyColor = 0x1e293b;
+      fogDensity = 0.005;
+      skyColor = 0x334155;
     } else if (this.weather === 'overcast') {
-      skyColor = 0x475569;
+      skyColor = 0x64748b;
     }
 
     this.scene.background = new THREE.Color(skyColor);
@@ -357,9 +367,12 @@ export class GameEngine {
     this.sunLight.position.set(cfg.sunPos[0], cfg.sunPos[1], cfg.sunPos[2]);
 
     this.ambientLight.intensity = cfg.ambient;
+    if (this.hemiLight) {
+      this.hemiLight.intensity = cfg.hemi;
+    }
 
     // Headlight spotlights toggle
-    const isNightOrFog = this.timeOfDay === 'night' || this.timeOfDay === 'sunset' || this.weather === 'foggy' || this.weather === 'rain';
+    const isNightOrFog = this.timeOfDay === 'night' || this.weather === 'foggy' || this.weather === 'rain';
     const lightsOn = this.physics.headlights || isNightOrFog;
 
     this.carExterior.headlightSpots.forEach((s) => (s.intensity = lightsOn ? 3.0 : 0));
@@ -367,17 +380,17 @@ export class GameEngine {
   }
 
   /**
-   * Procedural Infinite Road Mesh Generation
+   * Procedural Infinite Road and Landscape Mesh Generation
    */
   private rebuildRoadGeometry(centerDistance: number) {
-    const roadLength = 480; // meters ahead and behind
-    const startS = centerDistance - 70;
+    const roadLength = 550; // meters ahead and behind
+    const startS = centerDistance - 90;
     const endS = centerDistance + roadLength;
     const step = 4.0; // resolution
     const steps = Math.floor((endS - startS) / step);
 
     const roadWidth = HighwaySpline.TOTAL_ROAD_WIDTH;
-    const halfRoadWidth = roadWidth * 0.5;
+    const halfRoad = roadWidth * 0.5;
 
     // Road surface vertex buffer
     const roadVerts: number[] = [];
@@ -385,12 +398,14 @@ export class GameEngine {
     const roadUvs: number[] = [];
     const roadIndices: number[] = [];
 
+    // Terrain ribbons (left and right landscapes)
+    const terrainVerts: number[] = [];
+    const terrainNorms: number[] = [];
+    const terrainIndices: number[] = [];
+
     // Road markings vertex buffer
     const markVerts: number[] = [];
     const markIndices: number[] = [];
-
-    let vertIndex = 0;
-    let markVertIndex = 0;
 
     const p = new THREE.Vector3();
     const normal = new THREE.Vector3();
@@ -401,14 +416,15 @@ export class GameEngine {
       HighwaySpline.getPointAtDistance(s, p);
       HighwaySpline.getNormalAtDistance(s, normal);
 
+      // --- ROAD SURFACE ---
       // Left edge of road
-      tempP.copy(p).addScaledVector(normal, -halfRoadWidth);
+      tempP.copy(p).addScaledVector(normal, -halfRoad);
       roadVerts.push(tempP.x, tempP.y, tempP.z);
       roadNorms.push(0, 1, 0);
       roadUvs.push(0, s * 0.1);
 
       // Right edge of road
-      tempP.copy(p).addScaledVector(normal, halfRoadWidth);
+      tempP.copy(p).addScaledVector(normal, halfRoad);
       roadVerts.push(tempP.x, tempP.y, tempP.z);
       roadNorms.push(0, 1, 0);
       roadUvs.push(1, s * 0.1);
@@ -418,35 +434,79 @@ export class GameEngine {
         const row2 = (i + 1) * 2;
         roadIndices.push(row1, row1 + 1, row2);
         roadIndices.push(row1 + 1, row2 + 1, row2);
+        // Double-sided winding backup
+        roadIndices.push(row1, row2, row1 + 1);
+        roadIndices.push(row1 + 1, row2, row2 + 1);
       }
 
-      // Lane markings (dashed white lines between the 4 lanes)
-      const isDashed = Math.floor(s / 6) % 2 === 0;
-      if (isDashed) {
-        // 3 lane dividers
-        [-HighwaySpline.LANE_WIDTH, 0, HighwaySpline.LANE_WIDTH].forEach((dividerOffset) => {
-          tempP.copy(p).addScaledVector(normal, dividerOffset - 0.1);
-          markVerts.push(tempP.x, tempP.y + 0.02, tempP.z);
+      // --- SCENIC TERRAIN MESH (Left and Right outward strips) ---
+      // Left outer terrain (-160m to -halfRoad)
+      const tFarL = p.clone().addScaledVector(normal, -170);
+      tFarL.y -= 8.0 + Math.sin(s * 0.02) * 5.0;
+      const tNearL = p.clone().addScaledVector(normal, -halfRoad);
+      tNearL.y -= 0.1;
 
-          tempP.copy(p).addScaledVector(normal, dividerOffset + 0.1);
-          markVerts.push(tempP.x, tempP.y + 0.02, tempP.z);
+      // Right outer terrain (halfRoad to +160m)
+      const tNearR = p.clone().addScaledVector(normal, halfRoad);
+      tNearR.y -= 0.1;
+      const tFarR = p.clone().addScaledVector(normal, 170);
+      tFarR.y -= 8.0 + Math.cos(s * 0.02) * 5.0;
+
+      const tBase = i * 4;
+      terrainVerts.push(tFarL.x, tFarL.y, tFarL.z);
+      terrainVerts.push(tNearL.x, tNearL.y, tNearL.z);
+      terrainVerts.push(tNearR.x, tNearR.y, tNearR.z);
+      terrainVerts.push(tFarR.x, tFarR.y, tFarR.z);
+
+      terrainNorms.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+
+      if (i < steps) {
+        const nextBase = (i + 1) * 4;
+        // Left strip quads (tFarL -> tNearL)
+        terrainIndices.push(tBase, tBase + 1, nextBase);
+        terrainIndices.push(tBase + 1, nextBase + 1, nextBase);
+        // Right strip quads (tNearR -> tFarR)
+        terrainIndices.push(tBase + 2, tBase + 3, nextBase + 2);
+        terrainIndices.push(tBase + 3, nextBase + 3, nextBase + 2);
+      }
+
+      // --- ROAD MARKINGS (Dashed lane dividers & Solid shoulder lines) ---
+      const isDashed = Math.floor(s / 6) % 2 === 0;
+
+      const addMarkingQuad = (offset: number, width: number) => {
+        const pL = p.clone().addScaledVector(normal, offset - width * 0.5);
+        const pR = p.clone().addScaledVector(normal, offset + width * 0.5);
+        const startIdx = markVerts.length / 3;
+
+        markVerts.push(pL.x, pL.y + 0.04, pL.z);
+        markVerts.push(pR.x, pR.y + 0.04, pR.z);
+        return startIdx;
+      };
+
+      // 3 dashed lane dividers
+      if (isDashed) {
+        [-HighwaySpline.LANE_WIDTH, 0, HighwaySpline.LANE_WIDTH].forEach((dividerOffset) => {
+          addMarkingQuad(dividerOffset, 0.22);
         });
       }
+
+      // 2 continuous solid shoulder lines
+      addMarkingQuad(-halfRoad + 0.6, 0.25);
+      addMarkingQuad(halfRoad - 0.6, 0.25);
     }
 
-    // Connect markings
-    const markSegments = markVerts.length / 6;
-    for (let i = 0; i < markSegments - 1; i += 2) {
-      for (let line = 0; line < 3; line++) {
-        const base1 = i * 6 + line * 2;
-        const base2 = (i + 1) * 6 + line * 2;
-        markIndices.push(base1, base1 + 1, base2);
-        markIndices.push(base1 + 1, base2 + 1, base2);
-      }
+    // Connect markings quads
+    const totalMarkVerts = markVerts.length / 3;
+    for (let m = 0; m < totalMarkVerts - 2; m += 2) {
+      markIndices.push(m, m + 1, m + 2);
+      markIndices.push(m + 1, m + 3, m + 2);
+      markIndices.push(m, m + 2, m + 1);
+      markIndices.push(m + 1, m + 2, m + 3);
     }
 
     // Clean old meshes
     if (this.roadMesh) this.roadGroup.remove(this.roadMesh);
+    if (this.terrainMesh) this.roadGroup.remove(this.terrainMesh);
     if (this.roadMarkingsMesh) this.roadGroup.remove(this.roadMarkingsMesh);
 
     // Build Road Mesh
@@ -458,20 +518,40 @@ export class GameEngine {
 
     const isWet = this.weather === 'rain';
     const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: isWet ? 0.2 : 0.75,
-      metalness: isWet ? 0.5 : 0.15,
+      color: 0x27272a, // Rich highway tarmac asphalt
+      roughness: isWet ? 0.25 : 0.7,
+      metalness: isWet ? 0.35 : 0.05,
+      side: THREE.DoubleSide,
     });
     this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
     this.roadMesh.receiveShadow = true;
     this.roadGroup.add(this.roadMesh);
+
+    // Build Landscape Terrain Mesh
+    const terrainGeo = new THREE.BufferGeometry();
+    terrainGeo.setAttribute('position', new THREE.Float32BufferAttribute(terrainVerts, 3));
+    terrainGeo.setAttribute('normal', new THREE.Float32BufferAttribute(terrainNorms, 3));
+    terrainGeo.setIndex(terrainIndices);
+
+    const terrainMat = new THREE.MeshStandardMaterial({
+      color: 0x166534, // Lush meadow grass green
+      roughness: 0.9,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    this.terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+    this.terrainMesh.receiveShadow = true;
+    this.roadGroup.add(this.terrainMesh);
 
     // Build Markings Mesh
     if (markVerts.length > 0) {
       const markGeo = new THREE.BufferGeometry();
       markGeo.setAttribute('position', new THREE.Float32BufferAttribute(markVerts, 3));
       markGeo.setIndex(markIndices);
-      const markMat = new THREE.MeshBasicMaterial({ color: 0xfef08a }); // Bright highway yellow/white
+      const markMat = new THREE.MeshBasicMaterial({
+        color: 0xfef08a, // Crisp highway reflective yellow/white
+        side: THREE.DoubleSide,
+      });
       this.roadMarkingsMesh = new THREE.Mesh(markGeo, markMat);
       this.roadGroup.add(this.roadMarkingsMesh);
     }
@@ -574,28 +654,47 @@ export class GameEngine {
 
     // 3. Mountains in background & Roadside Trees
     const mountainGeo = new THREE.ConeGeometry(85, 90, 6);
-    const mountainMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9 });
+    const mountainMat = new THREE.MeshStandardMaterial({
+      color: 0x334155, // Blue-grey mountain slate
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+
     const treeTrunkGeo = new THREE.CylinderGeometry(0.3, 0.45, 4.0, 6);
     const treeLeavesGeo = new THREE.ConeGeometry(3.0, 6.5, 6);
-    const treeTrunkMat = new THREE.MeshStandardMaterial({ color: 0x451a03 });
-    const treeLeavesMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.8 });
+    const treeTrunkMat = new THREE.MeshStandardMaterial({
+      color: 0x78350f, // Warm rich bark brown
+      roughness: 0.85,
+      metalness: 0.0,
+    });
+    const treeLeavesMat = new THREE.MeshStandardMaterial({
+      color: 0x16a34a, // Fresh vibrant forest green
+      roughness: 0.65,
+      metalness: 0.0,
+    });
+    const treeLeavesMatAlt = new THREE.MeshStandardMaterial({
+      color: 0x22c55e, // Lighter green highlight
+      roughness: 0.65,
+      metalness: 0.0,
+    });
 
-    for (let s = startS; s < endS; s += 35) {
+    for (let s = startS; s < endS; s += 32) {
       const p = HighwaySpline.getPointAtDistance(s);
       const normal = HighwaySpline.getNormalAtDistance(s);
 
       // Trees along shoulder
-      [-1, 1].forEach((side) => {
+      [-1, 1].forEach((side, sideIdx) => {
         const tree = new THREE.Group();
-        const treePos = p.clone().addScaledVector(normal, side * (halfRoad + 6 + Math.random() * 8));
-        treePos.y += 0.5;
+        const treePos = p.clone().addScaledVector(normal, side * (halfRoad + 6 + Math.random() * 12));
+        treePos.y -= 0.2;
         tree.position.copy(treePos);
 
         const trunk = new THREE.Mesh(treeTrunkGeo, treeTrunkMat);
         trunk.position.y = 2.0;
         tree.add(trunk);
 
-        const leaves = new THREE.Mesh(treeLeavesGeo, treeLeavesMat);
+        const leavesMat = (Math.floor(s) + sideIdx) % 2 === 0 ? treeLeavesMat : treeLeavesMatAlt;
+        const leaves = new THREE.Mesh(treeLeavesGeo, leavesMat);
         leaves.position.y = 6.0;
         tree.add(leaves);
 
@@ -816,16 +915,22 @@ export class GameEngine {
       this.motoCockpit.handlebars.rotation.y = -this.physics.steerAngle * 0.4;
     }
 
-    // 6. Camera Positioning
+    // 6. Camera Positioning & Sunlight Tracking
+    if (this.sunLight && this.sunLight.target) {
+      this.sunLight.position.set(playerPos.x + 60, playerPos.y + 110, playerPos.z + 70);
+      this.sunLight.target.position.copy(playerPos);
+      this.sunLight.target.updateMatrixWorld();
+    }
+
     if (this.cameraView === 'cockpit') {
       // Driver cockpit seat position
-      const eyeOffset = isCar ? new THREE.Vector3(-0.42, 1.18, 0.1) : new THREE.Vector3(0, 1.28, 0.0);
+      const eyeOffset = isCar ? new THREE.Vector3(-0.42, 0.62, 0.05) : new THREE.Vector3(0, 0.85, -0.15);
       eyeOffset.applyQuaternion(vehicleQuat);
       this.camera.position.copy(playerPos).add(eyeOffset);
 
       // Look forward along road heading
-      const lookTarget = playerPos.clone().add(tangent.clone().multiplyScalar(35));
-      lookTarget.y += isCar ? 0.8 : 0.9;
+      const lookTarget = playerPos.clone().add(tangent.clone().multiplyScalar(40));
+      lookTarget.y += isCar ? 0.62 : 0.85;
       this.camera.lookAt(lookTarget);
 
       // Match vehicle roll/bank

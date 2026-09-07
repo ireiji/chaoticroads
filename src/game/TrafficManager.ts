@@ -94,10 +94,16 @@ export class TrafficManager {
       this.scene.add(meshData.root);
       this.vehicleMeshes.push(meshData);
 
-      // Initial placement spaced out along highway
+      // Initial placement spaced out ahead of player (player starts at 100)
       const lane = i % 4;
-      const initialDistance = 50 + i * 22;
+      const initialDistance = 115 + i * 28;
       const laneOffset = HighwaySpline.getLaneOffset(lane);
+
+      // Immediately set 3D transform on the spline so cars are visible right away
+      const initialPoint = HighwaySpline.getPointWithOffset(initialDistance, laneOffset);
+      const initialTangent = HighwaySpline.getTangentAtDistance(initialDistance);
+      meshData.root.position.copy(initialPoint);
+      meshData.root.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), initialTangent);
 
       let targetSpeed = 65;
       if (type === 'truck' || type === 'tanker') {
